@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import {Fn,float,vec2,vec3,vec4,color,mix,smoothstep,max,min,abs,pow,dot,normalize,reflect,clamp,cos,sin,exp,fract,floor,sqrt,length,log,
- attribute,varying,positionWorld,cameraPosition,fwidth} from 'three/tsl';
+ attribute,positionWorld,cameraPosition,fwidth,dFdx,dFdy,cross,sign,select} from 'three/tsl';
 
 // The sea as real geometry. A camera-centred grid, dense at the camera and
 // coarse at the horizon, is displaced in the vertex shader by two wave layers:
@@ -17,7 +17,7 @@ const G=9.81;
 // compass direction of travel: swell arrives from the WSW, heading ENE
 const SWELL=[{l:64,a:.34,h:72,s:.55,p:0},{l:48,a:.22,h:58,s:.5,p:1.7},{l:36,a:.13,h:84,s:.45,p:4.1}];
 // wind sea: offsets from the wind's heading, amplitude grows with wind speed
-const WIND=[{l:17,a:.06,o:0,s:.6,p:.3},{l:11,a:.042,o:28,s:.6,p:2.2},{l:7.4,a:.028,o:-32,s:.55,p:5.1},{l:4.8,a:.016,o:14,s:.5,p:1.1},{l:3.2,a:.009,o:-20,s:.45,p:3.3}];
+const WIND=[{l:17,a:.06,o:0,s:.6,p:.3},{l:11,a:.042,o:28,s:.6,p:2.2},{l:7.4,a:.028,o:-32,s:.55,p:5.1},{l:4.8,a:.016,o:14,s:.5,p:1.1},{l:3.2,a:.009,o:-20,s:.45,p:3.3},{l:2.2,a:.0055,o:35,s:.4,p:.8},{l:1.5,a:.0035,o:-8,s:.35,p:4.4}];
 
 export function createSea({look}){
  const {U,F,V,sky,cloudShade,seaField,bedAt,SWASH}=look;
@@ -29,7 +29,7 @@ export function createSea({look}){
  const f0=seaField(p0),open0=f0.z,dist0=f0.y;
  const bed0=bedAt(p0),depth0=max(U.tide.sub(bed0),0);
  const r0=length(p0.sub(cameraPosition.xz));
- const spacing=float(.5).add(r0.mul(.016));                       // roughly the grid spacing here
+ const spacing=float(.3).add(r0.mul(.013));                       // roughly the grid spacing here
  const exposure=open0.mul(.8).add(.2);
  const wdir=normalize(U.wind);
  const windAmp=pow(U.windSpeed.div(8),2);
@@ -38,7 +38,9 @@ export function createSea({look}){
   const k=2*Math.PI/l;
   const om=sqrt(tanh(depth0.mul(k)).mul(G*k));
   // fade a component out where the grid cannot carry it, and where the water is too shallow
-  const amp=a.mul(smoothstep(spacing.mul(3.5),spacing.mul(7),float(l))).mul(smoothstep(.1,1.2,depth0));
+  // short-crested: height wanders along each crest over a few wavelengths, so crests break into segments
+  const mod=V(vec2(dot(dir,p0),dot(vec2(dir.y.negate(),dir.x),p0).mul(1.8)).div(l*4.5),l*.37).mul(1.1).add(.45);
+  const amp=a.mul(mod).mul(smoothstep(spacing.mul(3.5),spacing.mul(7),float(l))).mul(smoothstep(.1,1.2,depth0));
   const th=dot(dir,p0).mul(k).sub(om.mul(U.time)).add(phase);
   const c=cos(th),s=sin(th);
   dx=dx.add(dir.x.mul(amp.mul(steep).mul(c)));dz=dz.add(dir.y.mul(amp.mul(steep).mul(c)));
@@ -51,31 +53,39 @@ export function createSea({look}){
   const c=Math.cos(w.o*Math.PI/180),s=Math.sin(w.o*Math.PI/180);
   addWave(vec2(wdir.x.mul(c).sub(wdir.y.mul(s)),wdir.x.mul(s).add(wdir.y.mul(c))),w.l,windAmp.mul(w.a).mul(open0.mul(.85).add(.15)),w.s,w.p);
  }
- // shoreline layer: runs in along the distance field, peaks up, breaks, dies on the sand
- const along=F(p0.mul(.004),.9).mul(9).add(F(p0.mul(.0011),2.2).mul(7));
- const shoal=float(1).add(float(1).sub(smoothstep(.3,6,depth0)).mul(.8));
- const LS=40;
- const phS=dist0.div(LS).mul(shoal).mul(6.2832).add(U.time.mul(1.1)).add(along);
- const Hs=U.swell.mul(.55).add(windAmp.mul(.15)).mul(exposure.mul(.7).add(.3)).mul(smoothstep(.02,.35,depth0));
- const breaking=smoothstep(max(Hs.mul(1.9),.35),Hs.mul(.95),depth0);   // spilling starts near depth ≈ 1.3 × height, fully broken by depth ≈ height
- const wS=float(1).sub(smoothstep(3,10,depth0));                  // takes over in the shallows
- const cs=cos(phS).mul(.5).add(.5);
- const shapeS=pow(cs,3).mul(1.7).sub(.45);                        // peaked crests, long flat troughs
- const yS=Hs.mul(shapeS).mul(float(1).sub(breaking.mul(.6))).mul(wS);
+ // shoreline layer: runs in along the distance field, peaks up, breaks, dies on the
+ // sand. One function, called by both the vertex stage (to move the surface) and
+ // the fragment stage (to place the whitewater), so nothing has to be passed between them.
+ const LS=40,LS2=27;
+ const shoreAt=(p,depth,dist,open,windAmp)=>{
+  const along=F(p.mul(.004),.9).mul(9).add(F(p.mul(.0011),2.2).mul(7));
+  const shoal=float(1).add(float(1).sub(smoothstep(.3,6,depth)).mul(.8));
+  const exposure=open.mul(.8).add(.2);
+  const segMod=F(p.mul(.006),1.7).mul(.9).add(.55);                      // some stretches of beach get bigger sets
+  const Hs=U.swell.mul(.55).add(windAmp.mul(.15)).mul(exposure.mul(.7).add(.3)).mul(smoothstep(.02,.35,depth)).mul(segMod);
+  const Hs2=Hs.mul(.5);
+  const phS=dist.div(LS).mul(shoal).mul(6.2832).add(U.time.mul(1.1)).add(along);
+  const phS2=dist.div(LS2).mul(shoal).mul(6.2832).add(U.time.mul(1.37)).add(along.mul(.8)).add(2.6);
+  // a flat beach: waves start spilling well out and stay broken all the way in
+  const breaking=smoothstep(max(Hs.mul(4.2),.7),Hs.mul(1.4),depth);
+  const breaking2=smoothstep(max(Hs2.mul(4.2),.5),Hs2.mul(1.4),depth);
+  const wS=float(1).sub(smoothstep(3,10,depth));                  // takes over in the shallows
+  return {shoal,Hs,Hs2,phS,phS2,breaking,breaking2,wS};
+ };
+ const sh0=shoreAt(p0,depth0,dist0,open0,windAmp);
+ const {shoal,Hs,Hs2,phS,phS2,breaking,breaking2,wS}=sh0;
+ const cs=cos(phS).mul(.5).add(.5),shapeS=pow(cs,3).mul(1.7).sub(.45);   // peaked crests, long flat troughs
+ const cs2=cos(phS2).mul(.5).add(.5),shapeS2=pow(cs2,3).mul(1.7).sub(.45);
+ const yS=Hs.mul(shapeS).mul(float(1).sub(breaking.mul(.6))).add(Hs2.mul(shapeS2).mul(float(1).sub(breaking2.mul(.6)))).mul(wS);
  // slope of the shoreline layer, from the distance field's gradient
  const e=8,gd=vec2(seaField(p0.add(vec2(e,0))).y.sub(dist0),seaField(p0.add(vec2(0,e))).y.sub(dist0)).div(e);
  const dShape=pow(cs,2).mul(sin(phS)).mul(-2.55).mul(6.2832/LS).mul(shoal);
- const sS=gd.mul(dShape).mul(Hs).mul(wS);
+ const dShape2=pow(cs2,2).mul(sin(phS2)).mul(-2.55).mul(6.2832/LS2).mul(shoal);
+ const sS=gd.mul(dShape.mul(Hs).add(dShape2.mul(Hs2))).mul(wS);
  const wD=float(1).sub(wS.mul(.75));
  // near the waterline the surface is lifted so the swash can run up the sand (see opacity)
  const lift=float(SWASH).mul(smoothstep(1.5,0,depth0));
  const posW=vec3(p0.x.add(dx.mul(wD)),U.tide.add(dy.mul(wD)).add(yS).add(lift),p0.y.add(dz.mul(wD)));
- const vN=varying(normalize(vec3(sx.mul(wD).add(sS.x).negate(),1,sz.mul(wD).add(sS.y).negate())),'seaN');
- const vCrest=varying(clamp(crestG.mul(.25).add(shapeS.mul(wS).mul(.5)),-1,1),'seaCrest');
- const vBreak=varying(breaking.mul(wS),'seaBreak');
- const vPhase=varying(phS,'seaPhase');
- const vHs=varying(Hs,'seaHs');
-
  // ---------- fragment ----------
  const hash32=p=>{const p3=fract(vec3(p.x,p.y,p.x).mul(vec3(.1031,.1030,.0973))).toVar();p3.addAssign(dot(p3,p3.yxz.add(33.33)));return fract(p3.xxy.add(p3.yzz).mul(p3.zyx));};
  // reality-js glints: tiny cells with normally distributed slopes; a cell flashes
@@ -96,6 +106,21 @@ export function createSea({look}){
   return acc;
  });
 
+ // Whitewater drawn the reality-js way: one number, coverage, decides the
+ // pattern. Dense foam is a sheet with holes, thinner foam breaks into threads
+ // along noise contours, the oldest foam into scattered lace. Far away the
+ // pattern gives way to its average so it cannot shimmer.
+ const laceFoam=(p,cov,fw)=>{
+  const q=p.mul(1.3).add(vec2(F(p.mul(.21),.4),F(p.mul(.21),1.3)).sub(.5).mul(2.4)).add(normalize(U.wind).mul(U.time.mul(.25)));
+  const sheetN=F(q.mul(.7),.2).mul(.6).add(F(q.mul(1.9),1.6).mul(.4));
+  const sheet=smoothstep(float(.76).sub(cov.mul(.42)),float(.79).sub(cov.mul(.42)),sheetN);
+  const n2=F(q.mul(2.3),2.1),r=float(1).sub(abs(n2.mul(2).sub(1)));
+  const w=float(.05).add(cov.mul(.2));
+  const thread=smoothstep(float(1).sub(w),float(1).sub(w.mul(.6)),r.add(V(q.mul(6),.7).mul(.06)));
+  const brk=smoothstep(float(.6).sub(cov.mul(.45)),float(.75).sub(cov.mul(.45)),V(q.mul(1.4),2.4));
+  const near=max(sheet,thread.mul(mix(.25,1,brk))).mul(smoothstep(.03,.14,cov));
+  return mix(near,smoothstep(.04,.6,cov).mul(.95),smoothstep(.04,.18,fw));   // far away: the foam's average, kept bright
+ };
  const make=({far})=>{
   const m=new THREE.MeshBasicNodeMaterial({transparent:true,depthWrite:false});
   if(!far)m.positionNode=posW;
@@ -121,21 +146,26 @@ export function createSea({look}){
    const rough=open.mul(.8).add(.2).mul(U.windSpeed.div(8)).mul(smoothstep(.02,.6,depth).mul(.85).add(.15));
    const fade=float(1).sub(smoothstep(300,5000,range));
    const g=vec2(ax.sub(a0).div(ea).mul(.7).add(bx.sub(b0).div(.12).mul(.06)),az.sub(a0).div(ea).mul(.7).add(bz.sub(b0).div(.12).mul(.06))).mul(rough).mul(fade.mul(.7).add(.3));
-   const base=far?vec3(0,1,0):vN;
+   // the surface's own slope, from screen-space derivatives of the displaced geometry
+   const nG=normalize(cross(dFdx(positionWorld),dFdy(positionWorld)).add(vec3(0,1e-7,0)));   // never a zero vector
+   const base=far?vec3(0,1,0):nG.mul(sign(nG.y));
    const n=normalize(base.add(vec3(g.x.negate(),0,g.y.negate())));
    const ndv=max(dot(n,eye),0);
    const shadeS=cloudShade(positionWorld);
    // foam
    const lump=F(p.mul(vec2(.3,.45)).add(U.time.mul(.08)),.6).mul(.6).add(V(p.mul(1.6),.4).mul(.4));
-   const breakF=far?float(0):vBreak;
-   const ph=far?float(0):vPhase;
-   const front=pow(cos(ph).mul(.5).add(.5),6);
-   const behind=exp(fract(ph.div(6.2832).negate().add(.22)).mul(-2.2));   // broken water stays white well behind the front
-   const active=smoothstep(.35,.62,F(p.mul(.018).add(vec2(U.time.mul(.01),0)),1.3).add(front.mul(.2)));
-   // whitewater has texture at every scale: metre-size clumps, then fine lace inside them
-   const fine=lump.mul(.55).add(V(p.mul(3.3).add(U.time.mul(.3)),1.9).mul(.3)).add(V(p.mul(9),.6).mul(.15));
-   const surf=breakF.mul(front.mul(smoothstep(.3,.42,fine.add(front.mul(.3)))).mul(2).add(behind.mul(smoothstep(.46,.58,fine)).mul(1.1))).mul(active.mul(.55).add(.45));
-   const crest=far?float(0):vCrest;
+   const sh=shoreAt(p,depth,f.y,open,pow(U.windSpeed.div(8),2));
+   const breakF=far?float(0):sh.breaking.mul(sh.wS),breakF2=far?float(0):sh.breaking2.mul(sh.wS);
+   // where each breaking wave is: u=0 at its crest, just below 1 on the face
+   // ahead of it, small just behind it where it has passed and left foam
+   const u1=far?float(.5):fract(sh.phS.div(6.2832)),u2=far?float(.5):fract(sh.phS2.div(6.2832));
+   const roller=u=>smoothstep(.8,.95,u).mul(float(1).sub(smoothstep(.988,1,u))).add(float(1).sub(smoothstep(0,.05,u)));
+   const trail=u=>exp(u.mul(-5.5));
+   const active=smoothstep(.3,.6,F(p.mul(.018).add(vec2(U.time.mul(.01),0)),1.3)).mul(.5).add(.5);
+   const cov=clamp(breakF.mul(roller(u1).mul(1.25).add(trail(u1).mul(.85))).add(breakF2.mul(roller(u2).add(trail(u2).mul(.7)).mul(.7))).mul(active),0,1);
+   const surf=laceFoam(p,cov,fw);
+   // how high this point stands in its wave: a crest proxy for whitecaps and crest light
+   const crest=far?float(0):clamp(positionWorld.y.sub(U.tide).div(U.swell.mul(.45).add(pow(U.windSpeed.div(8),2).mul(.08)).add(.05)),-1,1);
    const caps=smoothstep(.55,.9,crest).mul(smoothstep(.62,.78,lump.add(V(p.mul(.7),.2).mul(.3)))).mul(smoothstep(5,13,U.windSpeed)).mul(open).mul(smoothstep(2,6,depth));
    const lace=smoothstep(.42,.62,F(p.mul(vec2(1.4,2.2)).add(U.time.mul(.12)),1.7).mul(.6).add(V(p.mul(6),.9).mul(.4)));
    const edge=smoothstep(0,.006,signed).mul(float(1).sub(smoothstep(.012,.05,signed))).mul(lace.mul(.8).add(.2));
@@ -163,7 +193,11 @@ export function createSea({look}){
    col.addAssign(U.sunLight.mul(gl.mul(14)).mul(float(1).sub(foam)).mul(shadeS).mul(smoothstep(0,.06,U.sun.y)).mul(float(.4).add(smoothstep(4,40,range).mul(.6))));
    const foamLit=vec3(.93).mul(U.sunLight.mul(max(U.sun.y,0)).mul(shadeS).mul(.3).add(U.skyAmb.mul(1.3)));
    col.assign(mix(col,foamLit,foam));
-   return col;
+   // debug view: red = foam coverage, green = breaking, blue = position in the wave cycle
+   const dbg=vec3(cov,breakF,u1);
+   const dbg2=vec3(fract(sh.phS.mul(.1)),crest.mul(.5).add(.5),nG.y);
+   // select, not mix: a NaN in an unused debug value must not leak into the picture
+   return far?col:select(U.debug.greaterThan(1.5),dbg2,select(U.debug.greaterThan(.5),dbg,col));
   })();
   m.opacityNode=Fn(()=>{
    const {depth,signed}=state();
@@ -178,8 +212,8 @@ export function createSea({look}){
   return m;
  };
 
- // camera-centred grid: ~0.5 m apart at the camera, ~70 m at 5 km, out to 16 km
- const N=640,R=16000,A=.01;
+ // camera-centred grid: ~0.3 m apart at the camera, ~60 m at 5 km, out to 16 km
+ const N=900,R=16000,A=.008;   // ~0.3 m apart at the camera
  const warp=u=>Math.sign(u)*R*(A*Math.abs(u)+(1-A)*Math.abs(u)**3);
  const offs=new Float32Array(N);for(let i=0;i<N;i++)offs[i]=warp(-1+2*i/(N-1));
  const geo=new THREE.BufferGeometry(),pos=new Float32Array(N*N*3);

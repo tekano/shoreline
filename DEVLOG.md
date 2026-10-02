@@ -1,5 +1,19 @@
 # Devlog
 
+## 009: Whitewater and a busier sea (2026-10-02)
+
+- **More, smaller waves:**
+  - grid spacing near the camera is down to ~0.3 m;
+  - two more short wind-wave sizes;
+  - every wave train is short-crested: its height wanders along each crest over a few wavelengths, so crests break into segments instead of running as endless lines.
+- **Surf zone:**
+  - a second shoreline train with a different spacing and rhythm;
+  - wave height varies along the shore, so some stretches get bigger sets;
+  - on this flat beach, waves start spilling at a depth of about 4× their height and stay broken all the way in, so mid tide shows a wide surf zone of curving whitewater lines.
+- **Whitewater the reality-js way:** each breaking wave has a white roller on the face ahead of its crest and fresh foam left behind it. One coverage number then decides the pattern: a sheet with holes, threads along noise contours, scattered lace. Far away the pattern gives way to its (bright) average so it doesn't shimmer.
+- **Bug lesson:** in a debug blend, `mix(colour, debug, 0)` still returns NaN if the debug value is NaN (NaN × 0 is NaN). The far ring's screen-space normal degenerated at huge distances and blacked out the whole sea. `select()` doesn't propagate NaN. Along the way the shoreline terms became one function called by both shader stages, so nothing has to be passed between them.
+
+
 ## 008: The sea becomes geometry (2026-10-02)
 
 At full tide the old sea read as a lake: one flat plane with waves painted on. `walney/sea.js` replaces it with real geometry, layered by distance.

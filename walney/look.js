@@ -11,6 +11,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   sun:uniform(new THREE.Vector3(0,1,0)),time:uniform(0),tide:uniform(tide),tint:uniform(1),
   wind:uniform(new THREE.Vector2(.87,-.5)),windSpeed:uniform(7),   // m/s; blowing toward the ENE (a south-westerly, onshore here)
   swell:uniform(.8),clouds:uniform(.5),haze:uniform(1),
+  debug:uniform(0),
   sunLight:uniform(new THREE.Vector3(3,3,3)),skyAmb:uniform(new THREE.Vector3(.2,.3,.5))   // scene-unit sun and skylight, set from the sun's height
  };
  const noise=uv=>texture(noiseTex,uv);
