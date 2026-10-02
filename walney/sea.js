@@ -33,14 +33,17 @@ export function createSea({look}){
  const exposure=open0.mul(.8).add(.2);
  const wdir=normalize(U.wind);
  const windAmp=pow(U.windSpeed.div(8),2);
+ // more wind builds longer waves, and longer waves travel faster (c = sqrt(g L / 2pi)),
+ // so the sea speeds up with the wind as well as getting rougher
+ const windStretch=pow(max(U.windSpeed.div(8),.3),1.4);
  let dx=float(0),dz=float(0),dy=float(0),sx=float(0),sz=float(0),crestG=float(0);
  const addWave=(dir,l,a,steep,phase)=>{
-  const k=2*Math.PI/l;
-  const om=sqrt(tanh(depth0.mul(k)).mul(G*k));
+  const L=float(l),k=float(2*Math.PI).div(L);
+  const om=sqrt(tanh(depth0.mul(k)).mul(k).mul(G));
   // fade a component out where the grid cannot carry it, and where the water is too shallow
   // short-crested: height wanders along each crest over a few wavelengths, so crests break into segments
-  const mod=V(vec2(dot(dir,p0),dot(vec2(dir.y.negate(),dir.x),p0).mul(1.8)).div(l*4.5),l*.37).mul(1.1).add(.45);
-  const amp=a.mul(mod).mul(smoothstep(spacing.mul(3.5),spacing.mul(7),float(l))).mul(smoothstep(.1,1.2,depth0));
+  const mod=V(vec2(dot(dir,p0),dot(vec2(dir.y.negate(),dir.x),p0).mul(1.8)).div(L.mul(4.5)),.37).mul(1.1).add(.45);
+  const amp=a.mul(mod).mul(smoothstep(spacing.mul(3.5),spacing.mul(7),L)).mul(smoothstep(.1,1.2,depth0));
   const th=dot(dir,p0).mul(k).sub(om.mul(U.time)).add(phase);
   const c=cos(th),s=sin(th);
   dx=dx.add(dir.x.mul(amp.mul(steep).mul(c)));dz=dz.add(dir.y.mul(amp.mul(steep).mul(c)));
@@ -51,7 +54,7 @@ export function createSea({look}){
  for(const w of SWELL)addWave(compass(w.h),w.l,U.swell.mul(w.a).mul(exposure),w.s,w.p);
  for(const w of WIND){
   const c=Math.cos(w.o*Math.PI/180),s=Math.sin(w.o*Math.PI/180);
-  addWave(vec2(wdir.x.mul(c).sub(wdir.y.mul(s)),wdir.x.mul(s).add(wdir.y.mul(c))),w.l,windAmp.mul(w.a).mul(open0.mul(.85).add(.15)),w.s,w.p);
+  addWave(vec2(wdir.x.mul(c).sub(wdir.y.mul(s)),wdir.x.mul(s).add(wdir.y.mul(c))),windStretch.mul(w.l),windAmp.mul(w.a).mul(sqrt(windStretch)).mul(open0.mul(.85).add(.15)),w.s,w.p);
  }
  // shoreline layer: runs in along the distance field, peaks up, breaks, dies on the
  // sand. One function, called by both the vertex stage (to move the surface) and
@@ -98,7 +101,7 @@ export function createSea({look}){
    const tt=U.time.mul(rate).add(h0.z.mul(7)),hr=hash32(id.add(floor(tt).mul(1.618)));
    const rad=sqrt(log(max(hr.x,1e-4)).mul(-2));
    const slope=vec2(cos(hr.y.mul(6.2831)),sin(hr.y.mul(6.2831))).mul(rad).mul(sigma);
-   const d=slope.sub(need),hit=exp(dot(d,d).div(-.0064));
+   const d=slope.sub(need),hit=exp(dot(d,d).div(-.012));
    const c=h0.xy.mul(.6).add(.2),r2=max(.0006,pow(fw.mul(.5).div(cs),2));
    const spot=exp(dot(f.sub(c),f.sub(c)).negate().div(r2)).mul(.012).div(r2);
    acc.addAssign(hit.mul(spot).mul(pow(sin(fract(tt).mul(3.14159)),4).mul(2.67)).mul(float(.2).add(hr.z.mul(hr.z).mul(2.4))).mul(2.2));
@@ -163,18 +166,22 @@ export function createSea({look}){
    const trail=u=>exp(u.mul(-5.5));
    const active=smoothstep(.3,.6,F(p.mul(.018).add(vec2(U.time.mul(.01),0)),1.3)).mul(.5).add(.5);
    const cov=clamp(breakF.mul(roller(u1).mul(1.25).add(trail(u1).mul(.85))).add(breakF2.mul(roller(u2).add(trail(u2).mul(.7)).mul(.7))).mul(active),0,1);
-   const surf=laceFoam(p,cov,fw);
+   const surfCov=cov;
    // how high this point stands in its wave: a crest proxy for whitecaps and crest light
    const crest=far?float(0):clamp(positionWorld.y.sub(U.tide).div(U.swell.mul(.45).add(pow(U.windSpeed.div(8),2).mul(.08)).add(.05)),-1,1);
-   const caps=smoothstep(.55,.9,crest).mul(smoothstep(.62,.78,lump.add(V(p.mul(.7),.2).mul(.3)))).mul(smoothstep(5,13,U.windSpeed)).mul(open).mul(smoothstep(2,6,depth));
+   // whitecaps: crests torn by the wind; they join the surf in one coverage, one lace
+   const capsCov=smoothstep(.45,.95,crest).mul(smoothstep(.45,.75,lump)).mul(smoothstep(5,14,U.windSpeed)).mul(open).mul(smoothstep(2,6,depth)).mul(.8);
+   const surf=laceFoam(p,max(surfCov,capsCov),fw);
    const lace=smoothstep(.42,.62,F(p.mul(vec2(1.4,2.2)).add(U.time.mul(.12)),1.7).mul(.6).add(V(p.mul(6),.9).mul(.4)));
    const edge=smoothstep(0,.006,signed).mul(float(1).sub(smoothstep(.012,.05,signed))).mul(lace.mul(.8).add(.2));
    const bubbles=smoothstep(.04,.12,depth).mul(float(1).sub(smoothstep(.25,.6,depth))).mul(smoothstep(.72,.82,V(p.mul(9),.3).mul(.6).add(V(p.mul(23),1.3).mul(.4)))).mul(.35);   // fine scattered bubbles
-   const foam=clamp(surf.add(caps).add(edge).add(bubbles),0,1).toVar();
+   const foam=clamp(max(max(surf,edge),bubbles),0,1).toVar();
    // body: silty sand-grey in the shallows, teal, deep blue-grey; lit by sun and sky
    const body=mix(color('#8c8770'),color('#6f7e72'),smoothstep(.15,1.2,depth)).toVar();
    body.assign(mix(body,color('#3c6470'),smoothstep(1.2,4,depth)));
    body.assign(mix(body,color('#264b5e'),smoothstep(5,14,depth)));
+   // under an overcast deck the Irish Sea goes slate: grey-green, little blue left
+   body.assign(mix(body,mix(color('#6b6f66'),color('#4b5655'),smoothstep(.5,5,depth)),U.overcast.mul(.75)));
    body.mulAssign(U.sunLight.mul(max(U.sun.y,0)).mul(shadeS).mul(.32).add(U.skyAmb.mul(.9)));
    // light through the thin upper part of a wave: the sea's colour glowing in the crests
    const back=pow(max(dot(eye.negate(),normalize(vec3(U.sun.x,0,U.sun.z))),0),2).mul(.6).add(.4);
@@ -189,8 +196,8 @@ export function createSea({look}){
    col.addAssign(U.sunLight.mul(min(D.mul(Fh).div(max(ndv,.15).mul(4)),60)).mul(shadeS).mul(min(max(U.sun.y,0).mul(4),1)));
    // ...and individual glints sparkling in it, as in reality-js
    const need=vec2(hS.x.div(hS.y),hS.z.div(hS.y)).sub(vec2(n.x.div(n.y),n.z.div(n.y))).negate();
-   const gl=glints(p,need,fw,sqrt(sig2.mul(2)),float(1.1));
-   col.addAssign(U.sunLight.mul(gl.mul(14)).mul(float(1).sub(foam)).mul(shadeS).mul(smoothstep(0,.06,U.sun.y)).mul(float(.4).add(smoothstep(4,40,range).mul(.6))));
+   const gl=glints(p,need,fw,sqrt(sig2.mul(2.5)).add(.04),float(1.1));
+   col.addAssign(U.sunLight.mul(gl.mul(55)).mul(float(1).sub(foam)).mul(shadeS).mul(smoothstep(0,.06,U.sun.y)).mul(mix(.35,2.4,smoothstep(6,80,range))));
    const foamLit=vec3(.93).mul(U.sunLight.mul(max(U.sun.y,0)).mul(shadeS).mul(.3).add(U.skyAmb.mul(1.3)));
    col.assign(mix(col,foamLit,foam));
    // debug view: red = foam coverage, green = breaking, blue = position in the wave cycle

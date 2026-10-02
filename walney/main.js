@@ -35,7 +35,7 @@ const height=(x,z)=>{const w=nearEdge(x,z);return w>0?sample(near,x,z)*w+sample(
 const DEFAULT={...meta.cameras.westshore,tide:-1.5,haze:1,sunaz:195,sunel:52,tint:1};
 const saved=read();
 const presets={...meta.cameras,...saved};
-const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,exposure:1,wind:7,...DEFAULT,...(saved.__last||{})};
+const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,exposure:1,wind:7,overcast:0,...DEFAULT,...(saved.__last||{})};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
 
 // ---------- renderer ----------
@@ -116,11 +116,15 @@ function apply(){
  sun.position.set(x+Math.sin(az)*Math.cos(el)*5000,camY+Math.sin(el)*5000,z-Math.cos(az)*Math.cos(el)*5000);sun.target.position.set(x,camY,z);
  U.sun.value.set(Math.sin(az)*Math.cos(el),Math.sin(el),-Math.cos(az)*Math.cos(el));
  // light the scene with the sun's colour after its path through the air, and the sky's
- const {T,zen}=sunLightingFor(U.sun.value),tm=Math.max(...T,1e-4),zm=Math.max(...zen);
- U.sunLight.value.set(T[0]*3.4,T[1]*3.4,T[2]*3.4);U.skyAmb.value.set(...zen);
- sun.color.setRGB(T[0]/tm,T[1]/tm,T[2]/tm);sun.intensity=3.4*tm;
- hemi.color.setRGB(zen[0]/zm,zen[1]/zm,zen[2]/zm);hemi.intensity=Math.min(1.3,zm/.29*1.1)+.03;
- for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','exposure','wind'])$(k).value=state[k];
+ // overcast: the deck takes most of the direct sun and turns the skylight grey
+ const ov=state.overcast,{T,zen}=sunLightingFor(U.sun.value),tm=Math.max(...T,1e-4);
+ const day=Math.min(Math.max((U.sun.value.y+.05)/.4,0),1),grey=[.62,.65,.7].map(c=>c*day*.42);
+ const amb=zen.map((z,i)=>z*(1-ov)+grey[i]*ov),zm=Math.max(...amb,1e-4),direct=1-.88*ov;
+ U.sunLight.value.set(T[0]*3.4*direct,T[1]*3.4*direct,T[2]*3.4*direct);U.skyAmb.value.set(...amb);U.overcast.value=ov;
+ sun.color.setRGB(T[0]/tm,T[1]/tm,T[2]/tm);sun.intensity=3.4*tm*direct;
+ hemi.color.setRGB(amb[0]/zm,amb[1]/zm,amb[2]/zm);hemi.intensity=(Math.min(1.3,zm/.29*1.1)+.03)*(1+ov*.9);
+ for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','exposure','wind','overcast'])$(k).value=state[k];
+ $('overcast-v').textContent=Math.round(state.overcast*100)+'%';
  $('wind-v').textContent=state.wind.toFixed(0);
  $('exposure-v').textContent=state.exposure.toFixed(2);
  $('clouds-v').textContent=Math.round(state.clouds*100)+'%';$('swell-v').textContent=state.swell.toFixed(2);
@@ -140,7 +144,7 @@ function fovToMm(v){return Math.round(24/(2*Math.tan(v*Math.PI/360)));}
 for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
 $('fov').oninput=e=>{state.mm=+e.target.value;apply();};
 $('tint').onchange=e=>{state.tint=+e.target.value;apply();};
-for(const k of ['panDeg','panSecs','clouds','swell','exposure','wind'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
+for(const k of ['panDeg','panSecs','clouds','swell','exposure','wind','overcast'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
 $('motion').onchange=e=>{state.motion=e.target.value;panStart=performance.now()/1000;apply();};
 function fillPresets(){const all={...meta.cameras,...read()};delete all.__last;$('preset').innerHTML='<option value="">Choose a view…</option>'+Object.entries(all).map(([k,v])=>`<option value="${k}">${v.label||k}</option>`).join('');}
 fillPresets();

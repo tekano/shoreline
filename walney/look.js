@@ -11,7 +11,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   sun:uniform(new THREE.Vector3(0,1,0)),time:uniform(0),tide:uniform(tide),tint:uniform(1),
   wind:uniform(new THREE.Vector2(.87,-.5)),windSpeed:uniform(7),   // m/s; blowing toward the ENE (a south-westerly, onshore here)
   swell:uniform(.8),clouds:uniform(.5),haze:uniform(1),
-  debug:uniform(0),
+  debug:uniform(0),overcast:uniform(0),
   sunLight:uniform(new THREE.Vector3(3,3,3)),skyAmb:uniform(new THREE.Vector3(.2,.3,.5))   // scene-unit sun and skylight, set from the sun's height
  };
  const noise=uv=>texture(noiseTex,uv);
@@ -55,7 +55,10 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   const col=ts.mul(scatter).mul(float(1).sub(exp(tauV.negate()))).mul(ESUN).toVar();
   col.addAssign(ts.mul(ESUN*3).mul(smoothstep(.99994,.99998,c)).mul(step(0,d.y)));   // the sun's disc
   col.addAssign(vec3(.002,.003,.007));                                                   // night floor
-  return col;
+  // overcast: a grey stratus deck, brightest overhead, hides the blue and the sun's disc
+  const day=smoothstep(-.05,.35,s.y).mul(.85).add(smoothstep(-.1,0,s.y).mul(.15));
+  const deck=vec3(.62,.65,.7).mul(day).mul(smoothstep(-.05,.6,d.y).mul(.6).add(.55)).mul(1.35);
+  return mix(col,deck,U.overcast.mul(.92));
  });
 
  // ---------- clouds ----------
@@ -84,7 +87,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  const cloudShade=Fn(([pw])=>{                       // 1 in sun, ~.4 in cloud shadow
   const s=normalize(U.sun);
   const onLayer=pw.xz.add(s.xz.div(max(s.y,.15)).mul(float(CB+400).sub(pw.y)));
-  return float(1).sub(cloudDensity(onLayer).mul(.6).mul(smoothstep(0,.08,s.y)));
+  return float(1).sub(cloudDensity(onLayer).mul(.6).mul(smoothstep(0,.08,s.y)).mul(float(1).sub(U.overcast)));
  });
  const cloudMarch=Fn(([dir])=>{
   const d=normalize(dir),s=normalize(U.sun),c=dot(d,s);
@@ -109,7 +112,9 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   }
   // distant clouds sink into the haze
   const far=float(1).sub(exp(t0.mul(-1/30000).mul(U.haze.add(.3))));
-  return vec4(mix(L,atmosphere(vec3(d.x,.03,d.z)).mul(float(1).sub(T)),far),T);
+  // and right on the horizon, where samples are too far apart to resolve a cloud, fade them out
+  const low=smoothstep(.025,.07,d.y);
+  return vec4(mix(L,atmosphere(vec3(d.x,.03,d.z)).mul(float(1).sub(T)),far).mul(low),mix(1,T,low));
  });
 
  // ---------- sky ----------
@@ -136,7 +141,9 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   const c=atmosphere(d).toVar();
   c.assign(mix(c,U.sunLight.mul(.55).add(U.skyAmb.mul(1.5)),cirrus(d)));
   const cl=cloudMarch(d);
-  return c.mul(cl.w).add(cl.xyz).mul(step(0,d.y)).add(atmosphere(vec3(d.x,.0,d.z)).mul(step(d.y,0)));
+  // cumulus sink into the deck as it thickens, leaving darker shapes in the grey
+  const withClouds=c.mul(cl.w).add(cl.xyz).add(c.mul(float(1).sub(cl.w)).mul(U.overcast.mul(.8)));   // under the deck, cloud takes the deck's grey light
+  return withClouds.mul(step(0,d.y)).add(atmosphere(vec3(d.x,.0,d.z)).mul(step(d.y,0)));
  });
  const skyMaterial=new THREE.MeshBasicNodeMaterial({side:THREE.BackSide,depthWrite:false,fog:false});
  skyMaterial.colorNode=skyFull(positionWorld.sub(cameraPosition));
@@ -148,7 +155,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   const v=positionWorld.sub(cameraPosition),dist=v.length();
   const y0=cameraPosition.y,y1=positionWorld.y,ym=y0.add(y1).mul(.5);
   const e=y=>exp(max(y,-50).div(-1200));
-  const od=dist.mul(e(y0).add(e(ym).mul(4)).add(e(y1)).div(6)).mul(U.haze.mul(.00006));
+  const od=dist.mul(e(y0).add(e(ym).mul(4)).add(e(y1)).div(6)).mul(U.haze.add(U.overcast.mul(2.2)).mul(.00006));
   return float(1).sub(exp(od.negate()));
  });
  const fogDir=Fn(()=>{const v=positionWorld.sub(cameraPosition);const n=normalize(v);return vec3(n.x,max(n.y,.01),n.z);});

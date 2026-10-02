@@ -1,5 +1,21 @@
 # Devlog
 
+## 010: Grey days, wind that builds the sea, one foam layer (2026-10-02)
+
+- **Overcast:** the Irish Sea is grey more often than not, and nothing could make a grey day before. The new Overcast control:
+  - lays a grey stratus deck over the sky (brightest overhead) and fades the sun's disc;
+  - takes ~90% of the direct sun and turns the skylight grey;
+  - softens cloud shadows into an even light;
+  - thickens the haze;
+  - turns the sea slate grey-green.
+
+  Leftover cumulus take on the deck's light instead of going storm-dark.
+- **Wind builds the sea, not just its texture:** wind-wave lengths stretch with wind speed as well as their height, so a rising wind brings longer waves, and longer waves travel faster (c = √(gL/2π)). The sea speeds up with the wind, as it does in reality.
+- **One foam layer:** whitecaps and surf were drawn separately and added, which doubled the white. They now share one coverage and one lace pattern.
+- **Glints:** reality-js sparkles are stronger and spread wider through the sun path.
+- **Horizon specks:** clouds right at the horizon are faded out, because samples there are too far apart to resolve a cloud.
+
+
 ## 009: Whitewater and a busier sea (2026-10-02)
 
 - **More, smaller waves:**
