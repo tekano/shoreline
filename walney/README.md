@@ -8,6 +8,15 @@ Open `walney/` on the dev server (`python tools/serve.py`, then http://localhost
 - **Sliders:** eye height, heading, pitch, lens (full-frame mm), tide (m above Ordnance Datum Newlyn), haze, and sun direction.
 - **Saving views:** **Save view** keeps a named camera in your browser. **Copy camera JSON** and **Download cameras** export them for Houdini and the engine. Exported cameras include their National Grid easting and northing.
 
+## Reference pano overlay (local only)
+
+Put a 360° equirectangular pano at `refs/sandscale-pano.jpg` (git-ignored; mine has people in it, so it stays private). A **Pano ref** control then appears:
+- **Blend** fades between the render and the photo; **Wipe** splits the screen at the slider.
+- The photo is wrapped on a sphere around the camera, so it lines up at any heading and lens when you stand at the spot where it was taken. **Stand at pano spot** puts you there.
+- Yaw and pitch nudges trim the alignment. **Capture frame** saves a PNG to draw on.
+
+The pano's position and orientation are set in `walney/pano-ref.js`. Its GPS gives the spot, and Black Combe's summit at a known bearing fixes the heading.
+
 ## Data and rebuild
 
 ```sh
