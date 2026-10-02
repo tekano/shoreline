@@ -1,5 +1,15 @@
 # Devlog
 
+## 014: Night lights (v0.5.0, 2026-10-02)
+
+With the light now in real units, lamps can join it on the same scale: a lamp of I candela at distance d gives the eye I/d² lux, dimmed by the same haze, drawn as a small spot plus a little glare ([`walney/lights.js`](walney/lights.js)). By day they vanish into the sky; at dusk they come up through the blue hour.
+- **Offshore wind farms:** the 343 turbines of Walney 1-2 and its Extension, West of Duddon Sands, Ormonde and Barrow, from OpenStreetMap via Overpass, drawn instanced at their real sizes (hub and rotor from the rated output). Following the UK CAA's rules (CAP 764), only the turbines round each farm's edge, no more than ~900 m apart, carry aviation lights: red, 200 cd (the dimmed setting in good visibility), flashing Morse W in sync.
+- **Street lamps:** every ~35 m along the mapped roads, but only where buildings are close by, so towns and villages are lit and lanes are dark. Modern LED lamps are full cut-off, so a distant eye nearly level with them gets almost nothing (~8 cd); one in seven is old orange sodium (~120 cd).
+- **The BAE yard and other big sheds:** floodlights round the walls under the eaves (~600 cd toward a distant eye). Devonshire Dock Hall stands out at 51 m.
+- **Stars slider (stops):** a dark-adapted eye picks out far more stars than a camera at the same exposure. Default +2.5 stops on point stars; the Milky Way's faint glow is left at its true brightness.
+- At full night the town sits at the limit: an exposure set for the stars over-exposes it, much as a camera would. Pull Exposure down a couple of stops to see it as points.
+- [`terrain/nightlights.py`](terrain/nightlights.py) builds `walney/data/lights.json`.
+
 ## 013: One physical sky (v0.4.0, 2026-10-02)
 
 Up to now the sky, sun, haze, overcast and exposure were separate fudges, each tuned by eye, so fixing one broke another ("the exposure range is one or the other"). v0.4 replaces them with one physically based model, the same approach as Unreal's SkyAtmosphere (Hillaire 2020), in [`walney/atmo.js`](walney/atmo.js).

@@ -8,7 +8,7 @@ import {attribute,mix,vec3,float,smoothstep,positionWorld} from 'three/tsl';
 const WALL={house:[.78,.75,.70],hut:[.13,.13,.13],industry:[.62,.64,.65]};   // render, black-tarred huts, grey cladding
 const ROOF={house:[.33,.31,.31],hut:[.09,.09,.09],industry:[.55,.57,.58]};    // slate, felt, metal
 
-export function createStructures({features,height,look}){
+export function createStructures({features,height,look,offshore=[]}){
  const group=new THREE.Group();
 
  // ---------- buildings: one merged mesh ----------
@@ -64,13 +64,43 @@ export function createStructures({features,height,look}){
   head.add(rotor);group.add(tower,head);
   turbines.push({head,rotor,phase:Math.random()*6});
   // aviation light on the nacelle: steady red, 2000 cd dimmed to 200 cd in good visibility (UK CAA)
-  lamps.push({pos:[x,ground+HUB+2,z],cd:200,color:[1,.08,.03],flash:null});
+  lamps.push({pos:[x,ground+HUB+2,z],cd:200,color:[1,.08,.03],flash:0});
  }
+ // ---------- the offshore wind farms ----------
+ // Walney 1-2 and its Extension, West of Duddon Sands, Ormonde and Barrow: ~340 machines
+ // on the western horizon, drawn instanced (one draw per part) at their real sizes
+ const unitTower=new THREE.CylinderGeometry(.5,1,1,10).translate(0,.5,0);   // scaled to hub height and rotor/40 at the base
+ const unitHead=new THREE.BoxGeometry(.06,.05,.13).translate(0,0,.016);               // scaled by rotor diameter
+ const unitRotor=(()=>{const parts=[];for(let k=0;k<3;k++){const b=new THREE.BoxGeometry(.03,.5,.008).translate(0,.25,0);b.rotateZ(k*Math.PI*2/3);parts.push(b);}
+  const g=new THREE.BufferGeometry(),pos=[],nor=[];for(const b of parts){const bb=b.toNonIndexed();pos.push(...bb.attributes.position.array);nor.push(...bb.attributes.normal.array);}
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('normal',new THREE.Float32BufferAttribute(nor,3));return g;})();
+ const nOff=offshore.length;
+ const towers=new THREE.InstancedMesh(unitTower,white,nOff),heads=new THREE.InstancedMesh(unitHead,white,nOff),rotors=new THREE.InstancedMesh(unitRotor,white,nOff);
+ const m4=new THREE.Matrix4(),q=new THREE.Quaternion(),e=new THREE.Euler(),V3=new THREE.Vector3(),sc=new THREE.Vector3();
+ const farm=offshore.map(([x,z,hub,rotor,lit],i)=>{
+  const y=Math.max(height(x,z),0);
+  towers.setMatrixAt(i,m4.makeScale(rotor/40,hub,rotor/40).setPosition(x,y,z));   // towers thicken with the machine
+  return {x,y:y+hub,z,rotor,lit,phase:Math.random()*6.3};
+ });
+ for(const m of [towers,heads,rotors]){m.frustumCulled=false;if(nOff)group.add(m);}
+ const placeFarm=(yaw,spin)=>{
+  farm.forEach((t,i)=>{
+   heads.setMatrixAt(i,m4.compose(V3.set(t.x,t.y,t.z),q.setFromEuler(e.set(0,yaw,0)),sc.setScalar(t.rotor)));
+   const back=V3.set(0,0,-.03*t.rotor).applyAxisAngle(sc.set(0,1,0),yaw);
+   rotors.setMatrixAt(i,m4.compose(V3.set(t.x+back.x,t.y,t.z+back.z),q.setFromEuler(e.set(0,yaw,t.phase-spin,'YXZ')),sc.setScalar(t.rotor)));
+  });
+  heads.instanceMatrix.needsUpdate=rotors.instanceMatrix.needsUpdate=true;
+ };
+ let spin=0;
  // face into the wind; spin from cut-in at 3 m/s up to ~16 rpm
  const update=(dt,wind,windSpeed)=>{
   const yaw=Math.atan2(wind.x,wind.y);           // rotor on the upwind side
   const rpm=windSpeed<3?0:Math.min(16,2+windSpeed*1.4);
   for(const t of turbines){t.head.rotation.y=yaw;t.rotor.rotation.z-=rpm/60*Math.PI*2*dt;}
+  spin+=rpm*.7/60*Math.PI*2*dt;if(nOff)placeFarm(yaw,spin);   // the big offshore rotors turn slower
  };
+ // aviation lights on the offshore nacelles round each farm's edge: red, flashing Morse W in sync (UK CAA),
+ // 2000 cd dimmed to 200 cd in good visibility
+ for(const t of farm)if(t.lit)lamps.push({pos:[t.x,t.y+4,t.z],cd:200,color:[1,.08,.03],flash:-5});
  return {group,update,lamps,count:{buildings:features.buildings.length,turbines:turbines.length}};
 }

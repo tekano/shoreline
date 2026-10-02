@@ -42,11 +42,11 @@ const DEFAULT={...meta.cameras.westshore,tide:-1.5,haze:2.5,sunaz:195,sunel:52,t
 const saved=read();
 // the last session's settings, minus the light and grade from before v0.4's physical sky
 // (their scales changed: haze is now aerosol, exposure is stops around a metered EV)
-function lastFor(last={}){if(last.v===VERSION)return last;const {haze,ev,exposure,contrast,saturation,blacks,skyGain,...keep}=last;return keep;}
+function lastFor(last={}){if(last.v&&last.v>='0.4')return last;const {haze,ev,exposure,contrast,saturation,blacks,skyGain,...keep}=last;return keep;}
 const presets={...meta.cameras,...saved};
-export const VERSION='0.4.0';   // bump with each release; shown in the panel title
+export const VERSION='0.5.0';   // bump with each release; shown in the panel title
 document.title=`Walney ${VERSION}`;$('version').textContent=`v${VERSION}`;
-const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1,saturation:1,blacks:0,...DEFAULT,...lastFor(saved.__last)};
+const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1,saturation:1,blacks:0,stars:2.5,...DEFAULT,...lastFor(saved.__last)};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
 
 // ---------- renderer ----------
@@ -130,8 +130,15 @@ function zone(x,z){
 const grass=createGrass({look,height,zone});scene.add(grass.mesh);
 // buildings and wind turbines from OpenStreetMap
 const features=await (await fetch('./data/features.json')).json();
-const structures=createStructures({features,height,look});scene.add(structures.group);
-const lights=createLights({lamps:structures.lamps,look});scene.add(lights.mesh);const bufSize=new THREE.Vector2();
+const night=await (await fetch('./data/lights.json')).json();   // street lamps, floodlit sheds, offshore farms (terrain/nightlights.py)
+const structures=createStructures({features,height,look,offshore:night.offshore});scene.add(structures.group);
+// what each lamp sends toward a distant eye, almost level with it: modern LED street lights are
+// full cut-off (next to nothing that way, ~8 cd with tilt and the lit road), older sodium ones
+// glare (~120 cd); yard floods aim down (~600 cd)
+const lampList=[...structures.lamps,
+ ...night.street.map(([x,z,k])=>({pos:[x,height(x,z)+8,z],cd:k?120:8,color:k?[1,.55,.18]:[1,.92,.78],flash:0,halo:.004})),   // faint and many: little glare each
+ ...night.floods.map(([x,z,h])=>({pos:[x,height(x,z)+h,z],cd:600,color:[1,.9,.75],flash:0,halo:.01}))];
+const lights=createLights({lamps:lampList,look});scene.add(lights.mesh);const bufSize=new THREE.Vector2();
 // reference pano overlay (local only: the photo is private and not in the repo)
 const pano=await createPanoRef('sandscale');
 if(pano){
@@ -201,8 +208,9 @@ function apply(){
  sun.color.setRGB(...Esun.map(e=>e*direct*H));sun.intensity=1;
  hemi.color.setRGB(...Esky.map(e=>e*H));
  hemi.groundColor.setRGB(...[1,.95,.85].map((k,c)=>k*.2*(Esun[c]*Math.max(mu,0)*direct+Esky[c])*H));hemi.intensity=1;
-G.contrast.value=state.contrast;G.saturation.value=state.saturation;G.blacks.value=state.blacks;
- for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','ev','wind','overcast','day','time','waveScale','contrast','saturation','blacks'])$(k).value=state[k];
+U.starGain.value=2**state.stars;G.contrast.value=state.contrast;G.saturation.value=state.saturation;G.blacks.value=state.blacks;
+ for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','ev','wind','overcast','day','time','waveScale','contrast','saturation','blacks','stars'])$(k).value=state[k];
+ $('stars-v').textContent=`+${state.stars.toFixed(1)} stops`;
  $('contrast-v').textContent=state.contrast.toFixed(2);$('saturation-v').textContent=state.saturation.toFixed(2);$('blacks-v').textContent=state.blacks.toFixed(3);
  $('waveScale-v').textContent=state.waveScale.toFixed(2);
  const md=new Date(Date.UTC(2026,0,state.day));$('day-v').textContent=md.toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
@@ -231,7 +239,7 @@ $('fov').oninput=e=>{state.mm=+e.target.value;apply();};
 $('tint').onchange=e=>{state.tint=+e.target.value;apply();};
 // the clock moves the sun along its real path for Walney
 for(const k of ['day','time'])$(k).oninput=e=>{state[k]=+e.target.value;const sk=skyAt(2026,state.day,state.time);state.sunaz=Math.round(sk.sunAz);state.sunel=Math.round(sk.sunEl*4)/4;apply();};
-for(const k of ['panDeg','panSecs','clouds','swell','ev','wind','overcast','waveScale','contrast','saturation','blacks'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
+for(const k of ['panDeg','panSecs','clouds','swell','ev','wind','overcast','waveScale','contrast','saturation','blacks','stars'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
 $('motion').onchange=e=>{state.motion=e.target.value;panStart=performance.now()/1000;apply();};
 function fillPresets(){const all={...meta.cameras,...read()};delete all.__last;$('preset').innerHTML='<option value="">Choose a view…</option>'+Object.entries(all).map(([k,v])=>`<option value="${k}">${v.label||k}</option>`).join('');}
 fillPresets();

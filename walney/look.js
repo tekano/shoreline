@@ -18,6 +18,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   expo:uniform(2.5e-5),sunE:uniform(3.2),sunT:uniform(new THREE.Vector3(.9,.8,.7)),msG:uniform(new THREE.Vector3()),
   bR:uniform(new THREE.Vector3(5.802e-6,13.558e-6,33.1e-6)),bMs:uniform(1.5e-5),bMe:uniform(1.6e-5),zenTau:uniform(new THREE.Vector3(.05,.11,.27)),
   deckL:uniform(new THREE.Vector3()),deckCover:uniform(0),sunDirect:uniform(1),
+  starGain:uniform(2**2.5),   // the dark-adapted eye sees more stars than a camera at the same exposure
   stars:uniformArray(STARS.map(()=>new THREE.Vector4(0,-1,0,0)),'vec4'),   // scene direction + brightness, set by the sky clock
   toCel:uniform(new THREE.Matrix3()),                                          // scene direction -> celestial frame, set by the sky clock
   sunLight:uniform(new THREE.Vector3(3,3,3)),skyAmb:uniform(new THREE.Vector3(.2,.3,.5))   // scene-unit sun and skylight, set from the sun's height
@@ -172,7 +173,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
    .mul(exp(U.zenTau.mul(float(1).div(max(d.y,.035))).negate()));
   const starLight=float(0).toVar();
   for(let i=0;i<STARS.length;i++){const e=U.stars.element(i);const tw=sin(U.time.mul(5+i%7).add(i*2.3)).mul(.15).add(.85);starLight.addAssign(e.w.mul(tw).mul(exp(dot(d,e.xyz).sub(1).div(1.4e-6))));}
-  withClouds.addAssign(vec3(1,.96,.9).mul(clearView).mul(starLight.mul(2.08e-6/(2*Math.PI*1.4e-6))).mul(U.expo));
+  withClouds.addAssign(vec3(1,.96,.9).mul(clearView).mul(starLight.mul(2.08e-6/(2*Math.PI*1.4e-6))).mul(U.expo).mul(U.starGain));
   // the fainter stars (magnitude 4-7, ~900 per steradian, random but turning with the real sky)
   // and the Milky Way along its true path (~21 mag/arcsec2 at its brightest)
   const cel=U.toCel.mul(d);
@@ -182,7 +183,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   const fill=step(.985,h3.x).mul(exp(dot(off,off).div(-.04))).mul(pow(float(10),mag.mul(-.4))).mul(2.08e-6/(2*Math.PI*.02/(240*240)));
   const gp=vec3(-.8676,-.1981,.456),gc=vec3(-.055,-.8734,-.4839);
   const band=exp(pow(dot(cel,gp),2).div(-.016)).mul(dot(cel,gc).mul(.5).add(.6)).mul(F(cel.xy.mul(26).add(cel.z.mul(11)),.4).mul(.8).add(.4));
-  withClouds.addAssign(vec3(1,.97,.92).mul(fill.add(band.mul(5e-4))).mul(clearView).mul(U.expo));
+  withClouds.addAssign(vec3(1,.97,.92).mul(fill.mul(U.starGain).add(band.mul(5e-4))).mul(clearView).mul(U.expo));   // the eye picks out points, not faint glow
   return withClouds.mul(step(0,d.y)).add(atmosphere(vec3(d.x,.0,d.z)).mul(step(d.y,0)));
  });
  // what a rough water or wet surface mirrors: facets tilt the view up off the pale horizon band,
