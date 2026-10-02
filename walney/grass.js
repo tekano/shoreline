@@ -59,7 +59,7 @@ export function createGrass({look,height,zone}){
  const vN=varying(n0,'bladeNormal'),vT=varying(t,'bladeT'),vG=varying(g,'bladeGust'),vTone=varying(T,'bladeTone'),vP=varying(posW,'bladePos');
 
  // lit like the terrain (same sun and sky), so blades and ground agree
- const material=new THREE.MeshStandardNodeMaterial({side:THREE.DoubleSide,roughness:.85,metalness:0});
+ const material=new THREE.MeshPhysicalNodeMaterial({side:THREE.DoubleSide,roughness:.85,metalness:0,specularIntensity:.25});   // a canopy shades its own sheen
  material.positionNode=posW;
  // normals bent toward the sky so thin leaves take the same light as the ground beneath
  material.normalNode=transformNormalToView(normalize(select(frontFacing,vN,vN.negate()).add(vec3(0,.9,0))));
@@ -75,13 +75,15 @@ export function createGrass({look,height,zone}){
   base.assign(mix(base,mix(mix(color('#394d30'),color('#6a824f'),vT),color('#898256'),dry.mul(.4)),step(1.5,kind)));
   // rolled marram leaves flash silver-grey when a gust lays them over
   base.assign(mix(base,color('#a9a898'),vG.mul(vTone.z).mul(smoothstep(.2,.9,vT)).mul(.3)));
-  return base.mul(mix(.68,1,smoothstep(0,.5,vT))).mul(look.cloudShade(vP));      // darker down in the clump, and under cloud
+  // real reflectance, measured against the pano: marram, field grass, saltmarsh
+  const reflect=mix(mix(vec3(.37,.37,.32),vec3(.33),step(.5,kind)),vec3(.25,.29,.31),step(1.5,kind));
+  return base.mul(reflect).mul(mix(.68,1,smoothstep(0,.5,vT))).mul(look.cloudShade(vP));      // darker down in the clump, and under cloud
  })();
  material.colorNode=albedo;
  // sun shining through backlit leaves
  material.emissiveNode=Fn(()=>{
   const eye=normalize(cameraPosition.sub(vP));
-  return albedo.mul(pow(max(dot(eye.negate(),U.sun),0),3).mul(1.2).mul(vT));
+  return albedo.mul(pow(max(dot(eye.negate(),U.sun),0),3).mul(vT)).mul(U.sunLight.mul(.45));   // in the sun's real light
  })();
  material.fog=true;
 

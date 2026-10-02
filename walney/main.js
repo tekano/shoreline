@@ -1,6 +1,8 @@
 import * as THREE from 'three/webgpu';
 import {pass,uniform,vec3,vec4,float,dot,mix,pow,max,renderOutput} from 'three/tsl';
-import {createLook,sunLightingFor} from './look.js';
+import {createLook} from './look.js';
+import {createLights} from './lights.js';
+import {E0,visibilityKm,mieFor} from './atmo.js';
 import {createGrass} from './grass.js';
 import {loadLandcover} from './landcover.js';
 import {createSea} from './sea.js';
@@ -36,12 +38,15 @@ const nearEdge=(x,z)=>{const e=Math.min(x-near.west,near.west+near.w*near.res-x,
 const height=(x,z)=>{const w=nearEdge(x,z);return w>0?sample(near,x,z)*w+sample(far,x,z)*(1-w):sample(far,x,z);};
 
 // ---------- view state ----------
-const DEFAULT={...meta.cameras.westshore,tide:-1.5,haze:1,sunaz:195,sunel:52,tint:1};
+const DEFAULT={...meta.cameras.westshore,tide:-1.5,haze:2.5,sunaz:195,sunel:52,tint:1};
 const saved=read();
+// the last session's settings, minus the light and grade from before v0.4's physical sky
+// (their scales changed: haze is now aerosol, exposure is stops around a metered EV)
+function lastFor(last={}){if(last.v===VERSION)return last;const {haze,ev,exposure,contrast,saturation,blacks,skyGain,...keep}=last;return keep;}
 const presets={...meta.cameras,...saved};
-export const VERSION='0.3.0';   // bump with each release; shown in the panel title
+export const VERSION='0.4.0';   // bump with each release; shown in the panel title
 document.title=`Walney ${VERSION}`;$('version').textContent=`v${VERSION}`;
-const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1.3,saturation:1,blacks:.008,skyGain:.8,...DEFAULT,...(saved.__last||{})};
+const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1,saturation:1,blacks:0,...DEFAULT,...lastFor(saved.__last)};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
 
 // ---------- renderer ----------
@@ -54,12 +59,12 @@ view.prepend(renderer.domElement);$('status').remove();
 const scene=new THREE.Scene();
 // Grade in HDR before tone mapping: contrast around mid-grey, saturation, a black level.
 // The pano reference is drawn afterwards in its own scene, so the comparison stays untouched.
-const G={contrast:uniform(1.3),saturation:uniform(1),blacks:uniform(.008)};
+const G={contrast:uniform(1),saturation:uniform(1),blacks:uniform(0),wb:uniform(new THREE.Vector3(1,1,1))};
 const overlay=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(40,1,.3,60000);
 const scenePass=pass(scene,camera);
 const graded=(()=>{
- const c=max(scenePass.rgb.sub(G.blacks),0);
+ const c=max(scenePass.rgb.mul(G.wb).sub(G.blacks),0);   // daylight white balance, as a camera's preset
  const lum=dot(c,vec3(.2126,.7152,.0722));
  const sat=mix(vec3(lum),c,G.saturation);
  return vec4(pow(max(sat,1e-5).div(.18),vec3(G.contrast)).mul(.18),1);
@@ -74,6 +79,7 @@ pipeline.outputColorTransform=false;
 const draw=()=>pipeline.render();
 // passes re-render once per animation frame; a capture from a paused (hidden) tab needs a new frame id
 const drawNow=()=>{renderer._nodes.nodeFrame.update();draw();};
+let skyHaze=null,skyMu=null,skyE=[0,0,0],meteredEV=15;
 const sun=new THREE.DirectionalLight('#fff4e2',3.0);scene.add(sun,sun.target);
 const hemi=new THREE.HemisphereLight('#a9c4ea','#7a6f5c',1.1);scene.add(hemi);
 const haze=new THREE.Color('#a9c1db');
@@ -82,6 +88,11 @@ const haze=new THREE.Color('#a9c1db');
 // the look (sky, ground, sea) lives in look.js; U.tint switches clay ↔ colour
 const landcover=await loadLandcover(meta);
 const look=createLook({noiseTex:makeNoiseTexture(),far,near,tide:state.tide,landcover});
+const atmo=look.atmo;
+// the camera's 'daylight' white balance: neutral under a summer noon sun and sky (fixed, so
+// sunsets stay warm and twilight blue, as in a photo)
+{atmo.setHaze(DEFAULT.haze);const mu=Math.sin(55*Math.PI/180);atmo.buildSky(mu);const k=atmo.skyIrradiance(),t=atmo.sunTransmittance(mu);
+ const e=t.map((x,c)=>x*mu+k[c]),l=.2126*e[0]+.7152*e[1]+.0722*e[2];G.wb.value.set(...e.map(x=>l/x));}
 const U=look.U;
 scene.fogNode=look.fogNode;   // aerial perspective coloured by the sky in each direction
 const ground=look.ground;
@@ -120,6 +131,7 @@ const grass=createGrass({look,height,zone});scene.add(grass.mesh);
 // buildings and wind turbines from OpenStreetMap
 const features=await (await fetch('./data/features.json')).json();
 const structures=createStructures({features,height,look});scene.add(structures.group);
+const lights=createLights({lamps:structures.lamps,look});scene.add(lights.mesh);const bufSize=new THREE.Vector2();
 // reference pano overlay (local only: the photo is private and not in the repo)
 const pano=await createPanoRef('sandscale');
 if(pano){
@@ -151,21 +163,46 @@ function apply(){
  sea.update(x,z,state.tide);U.tide.value=state.tide;U.windSpeed.value=state.wind;U.clouds.value=state.clouds;U.swell.value=state.swell;U.tint.value=+state.tint;skyDome.position.copy(camera.position);
  // the waterline field is rebuilt after the tide slider settles
  if(state.tide!==seaTide){clearTimeout(seaTimer);seaTimer=setTimeout(()=>{look.updateSea(state.tide);seaTide=state.tide;},120);}
- U.haze.value=state.haze;renderer.toneMappingExposure=2**state.ev;   // exposure in stops, as on a camera
+ U.haze.value=state.haze;renderer.toneMappingExposure=1;   // exposure is applied to the light itself (pre-exposed), see below
  const az=state.sunaz*Math.PI/180,el=state.sunel*Math.PI/180;
  sun.position.set(x+Math.sin(az)*Math.cos(el)*5000,camY+Math.sin(el)*5000,z-Math.cos(az)*Math.cos(el)*5000);sun.target.position.set(x,camY,z);
  U.sun.value.set(Math.sin(az)*Math.cos(el),Math.sin(el),-Math.cos(az)*Math.cos(el));
- // light the scene with the sun's colour after its path through the air, and the sky's
- // overcast: the deck takes most of the direct sun and turns the skylight grey
- const ov=state.overcast,{T,zen}=sunLightingFor(U.sun.value),tm=Math.max(...T,1e-4);
- const day=Math.min(Math.max((U.sun.value.y+.05)/.4,0),1),grey=[.62,.65,.7].map(c=>c*day*.42);
- const amb=zen.map((z,i)=>z*(1-ov)+grey[i]*ov),zm=Math.max(...amb,1e-4),direct=1-.88*ov;
- U.sunLight.value.set(T[0]*3.4*direct,T[1]*3.4*direct,T[2]*3.4*direct);U.skyAmb.value.set(...amb);U.overcast.value=ov;U.waveScale.value=state.waveScale;
- sun.color.setRGB(T[0]/tm,T[1]/tm,T[2]/tm);sun.intensity=3.4*tm*direct;
- hemi.color.setRGB(amb[0]/zm,amb[1]/zm,amb[2]/zm);hemi.intensity=(Math.min(.75,zm/.29*.62)+.02)*(1+ov*.25);   // sun-led light: modest fill, darker overcast days
- U.skyGain.value=state.skyGain;G.contrast.value=state.contrast;G.saturation.value=state.saturation;G.blacks.value=state.blacks;
- for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','ev','wind','overcast','day','time','waveScale','contrast','saturation','blacks','skyGain'])$(k).value=state[k];
- $('skyGain-v').textContent=state.skyGain.toFixed(2);
+ // ---- light, from the atmosphere model (atmo.js): real units, then one exposure ----
+ const mu=U.sun.value.y;
+ if(state.haze!==skyHaze){atmo.setHaze(state.haze);skyHaze=state.haze;skyMu=null;}
+ if(mu!==skyMu){atmo.buildSky(mu);look.updateSkyTex();skyMu=mu;skyE=atmo.skyIrradiance().map(e=>e*E0);}
+ const Ts=atmo.sunTransmittance(mu),Esun=Ts.map(t=>t*E0);              // lux on a surface facing the sun
+ // overcast: a stratus deck of optical depth up to ~60. Direct sun is lost; what gets through
+ // is diffused (two-stream: 1/(1+0.75(1-g)tau)), so a thick deck is 2-3 stops darker than sun
+ const ov=state.overcast,tau=60*ov**1.5,cover=Math.min(1,ov/.3)**2*(3-2*Math.min(1,ov/.3));
+ const Tdiff=1/(1+.75*.15*tau),direct=(1-cover)+cover*Math.exp(-tau/Math.max(mu,.05));
+ const above=Esun.map((e,c)=>e*Math.max(mu,0)+skyE[c]);
+ const deckL=above.map((e,c)=>e*Tdiff/Math.PI*[.96,.98,1][c]);
+ const Esky=skyE.map((e,c)=>e*(1-cover)+cover*Math.PI*deckL[c]);
+ // exposure: meter the light falling on the land (incident metering, EV100 = log2(E*100/250)),
+ // then adapt like an eye or an auto-exposing camera: by day only partly (an overcast
+ // day still looks darker than a sunny one), at night much more (the stars come out)
+ const lumOf=v=>.2126*v[0]+.7152*v[1]+.0722*v[2];
+ const Eh=lumOf(Esun)*Math.max(mu,0)*direct+lumOf(Esky)+.002;
+ const meter=Math.log2(Eh*100/250);
+ const adapted=meter>=10?15+.65*(meter-15):15+.65*(10-15)+(meter-10)*.85;
+ const ev100=Math.min(16,Math.max(-6,adapted))-state.ev;
+ // exposure: scene values are cd/m2 x H. Set like the phone that took the pano: a grey card
+ // (18%) lands a stop above display mid-grey, so the sky reads as bright as in the photo.
+ // H = 2 x 0.22 pi / (0.18 E), with E = 2.5 x 2^EV100 lux
+ const H=2*.22*Math.PI/(.18*2.5*2**ev100);
+ meteredEV=ev100;
+ const mie=mieFor(state.haze),boost=1+ov*1.5;   // a little more haze under a deck
+ U.expo.value=H;U.sunE.value=E0*H;U.sunT.value.set(...Ts);U.msG.value.set(...atmo.msAt(mu));U.sunDirect.value=direct;
+ U.bMs.value=mie.s*boost;U.bMe.value=mie.e*boost;U.zenTau.value.set(...atmo.zenithDepth());
+ U.deckL.value.set(...deckL.map(e=>e*H));U.deckCover.value=cover;
+ U.sunLight.value.set(...Esun.map(e=>e*direct*H));U.skyAmb.value.set(...Esky.map(e=>e/Math.PI*H));
+ U.overcast.value=ov;U.waveScale.value=state.waveScale;
+ sun.color.setRGB(...Esun.map(e=>e*direct*H));sun.intensity=1;
+ hemi.color.setRGB(...Esky.map(e=>e*H));
+ hemi.groundColor.setRGB(...[1,.95,.85].map((k,c)=>k*.2*(Esun[c]*Math.max(mu,0)*direct+Esky[c])*H));hemi.intensity=1;
+G.contrast.value=state.contrast;G.saturation.value=state.saturation;G.blacks.value=state.blacks;
+ for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','ev','wind','overcast','day','time','waveScale','contrast','saturation','blacks'])$(k).value=state[k];
  $('contrast-v').textContent=state.contrast.toFixed(2);$('saturation-v').textContent=state.saturation.toFixed(2);$('blacks-v').textContent=state.blacks.toFixed(3);
  $('waveScale-v').textContent=state.waveScale.toFixed(2);
  const md=new Date(Date.UTC(2026,0,state.day));$('day-v').textContent=md.toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
@@ -174,16 +211,16 @@ function apply(){
  const sk=skyAt(2026,state.day,state.time);sk.stars.forEach((st,i)=>U.stars.array[i].set(...st));U.toCel.value.set(...sk.toCel.flat());
  $('overcast-v').textContent=Math.round(state.overcast*100)+'%';
  $('wind-v').textContent=state.wind.toFixed(0);
- $('ev-v').textContent=(state.ev>=0?'+':'')+state.ev.toFixed(1)+' EV';
+ $('ev-v').textContent=`${state.ev>=0?'+':''}${state.ev.toFixed(1)} (EV100 ${meteredEV.toFixed(1)})`;
  $('clouds-v').textContent=Math.round(state.clouds*100)+'%';$('swell-v').textContent=state.swell.toFixed(2);
  $('motion').value=state.motion;$('panDeg-v').textContent=state.panDeg;$('panSecs-v').textContent=state.panSecs;
  $('fov').value=state.mm??fovToMm(state.fov);$('tint').value=state.tint;
  $('eye-v').textContent=state.eye.toFixed(1);$('heading-v').textContent=state.heading.toFixed(1);$('pitch-v').textContent=state.pitch.toFixed(1);
- $('fov-v').textContent=Math.round($('fov').value);$('tide-v').textContent=state.tide.toFixed(1);$('haze-v').textContent=state.haze.toFixed(2);
+ $('fov-v').textContent=Math.round($('fov').value);$('tide-v').textContent=state.tide.toFixed(1);$('haze-v').textContent=`${Math.round(visibilityKm(state.haze))} km`;
  $('sunaz-v').textContent=state.sunaz;$('sunel-v').textContent=state.sunel;
  const E=meta.origin_osgb[0]+x,Nn=meta.origin_osgb[1]-z;
  $('readout').textContent=`E ${E.toFixed(0)}  N ${Nn.toFixed(0)}  ·  ground ${groundY.toFixed(1)} m  ·  eye ${camY.toFixed(1)} m ODN  ·  ${Math.round(state.heading)}°`;
- const last={...state};write({...read(),__last:last});
+ const last={...state,v:VERSION};write({...read(),__last:last});
  drawMap();
 }
 function fovToMm(v){return Math.round(24/(2*Math.tan(v*Math.PI/360)));}
@@ -194,7 +231,7 @@ $('fov').oninput=e=>{state.mm=+e.target.value;apply();};
 $('tint').onchange=e=>{state.tint=+e.target.value;apply();};
 // the clock moves the sun along its real path for Walney
 for(const k of ['day','time'])$(k).oninput=e=>{state[k]=+e.target.value;const sk=skyAt(2026,state.day,state.time);state.sunaz=Math.round(sk.sunAz);state.sunel=Math.round(sk.sunEl*4)/4;apply();};
-for(const k of ['panDeg','panSecs','clouds','swell','ev','wind','overcast','waveScale','contrast','saturation','blacks','skyGain'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
+for(const k of ['panDeg','panSecs','clouds','swell','ev','wind','overcast','waveScale','contrast','saturation','blacks'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
 $('motion').onchange=e=>{state.motion=e.target.value;panStart=performance.now()/1000;apply();};
 function fillPresets(){const all={...meta.cameras,...read()};delete all.__last;$('preset').innerHTML='<option value="">Choose a view…</option>'+Object.entries(all).map(([k,v])=>`<option value="${k}">${v.label||k}</option>`).join('');}
 fillPresets();
@@ -264,7 +301,7 @@ function panHeading(now){
  return state.heading;
 }
 let lastT=0;
-renderer.setAnimationLoop(t=>{const dt=Math.min(.1,(t-lastT)/1000);lastT=t;pano?.follow(camera);U.time.value=t/1000;structures.update(dt,U.wind.value,U.windSpeed.value);
+renderer.setAnimationLoop(t=>{const dt=Math.min(.1,(t-lastT)/1000);lastT=t;pano?.follow(camera);lights.update(camera,renderer.getDrawingBufferSize(bufSize).y);U.time.value=t/1000;structures.update(dt,U.wind.value,U.windSpeed.value);
  if(state.motion!=='locked'&&!aim)camera.rotation.set(state.pitch*Math.PI/180,-panHeading(t/1000)*Math.PI/180,0,'YXZ');const r=view.getBoundingClientRect();if(r.width&&r.height)draw();});
 // dev: render one frame and save it through tools/serve.py (captures/, git-ignored)
 async function capture(name='walney.png'){pano?.follow(camera);drawNow();const blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/png'));await fetch(`/__capture?name=${encodeURIComponent(name)}`,{method:'POST',body:blob});return name;}

@@ -38,7 +38,7 @@ export function createStructures({features,height,look}){
  g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
  g.setIndex(idx);g.computeVertexNormals();
  const mat=new THREE.MeshStandardNodeMaterial({roughness:.85,side:THREE.DoubleSide});
- mat.colorNode=attribute('color','vec3').mul(look.cloudShade(positionWorld));
+ mat.colorNode=attribute('color','vec3').mul(.6).mul(look.cloudShade(positionWorld));   // walls and roofs reflect ~20-30%
  const buildings=new THREE.Mesh(g,mat);buildings.frustumCulled=false;group.add(buildings);
 
  // ---------- wind turbines ----------
@@ -46,13 +46,13 @@ export function createStructures({features,height,look}){
  const HUB=50,ROTOR=44;
  const white=new THREE.MeshStandardNodeMaterial({color:'#e8eaea',roughness:.55});
  white.colorNode=vec3(1,1,1).mul(look.cloudShade(positionWorld));
- white.emissiveNode=vec3(.08,.08,.085);   // painted white: stays readable against haze
+ white.emissiveNode=look.U.skyAmb.mul(.12);   // painted white: stays readable against haze (scaled with the light, so dark at night)
  const towerG=new THREE.CylinderGeometry(1.1,2,HUB,14).translate(0,HUB/2,0);
  const nacelleG=new THREE.BoxGeometry(3.2,3,8).translate(0,0,1);
  const bladeG=new THREE.BoxGeometry(.9,ROTOR/2,.25).translate(0,ROTOR/4,0);
  // a slight taper so blades read as blades, not planks
  {const p=bladeG.attributes.position;for(let i=0;i<p.count;i++){const yy=p.getY(i)/(ROTOR/2);p.setX(i,p.getX(i)*(1-yy*.65));}p.needsUpdate=true;bladeG.computeVertexNormals();}
- const turbines=[];
+ const turbines=[],lamps=[];
  for(const t of features.turbines){
   const [x,z]=t.pos,ground=height(x,z);
   const tower=new THREE.Mesh(towerG,white);tower.position.set(x,ground,z);
@@ -63,6 +63,8 @@ export function createStructures({features,height,look}){
   rotor.add(new THREE.Mesh(new THREE.SphereGeometry(1.1,10,8),white));
   head.add(rotor);group.add(tower,head);
   turbines.push({head,rotor,phase:Math.random()*6});
+  // aviation light on the nacelle: steady red, 2000 cd dimmed to 200 cd in good visibility (UK CAA)
+  lamps.push({pos:[x,ground+HUB+2,z],cd:200,color:[1,.08,.03],flash:null});
  }
  // face into the wind; spin from cut-in at 3 m/s up to ~16 rpm
  const update=(dt,wind,windSpeed)=>{
@@ -70,5 +72,5 @@ export function createStructures({features,height,look}){
   const rpm=windSpeed<3?0:Math.min(16,2+windSpeed*1.4);
   for(const t of turbines){t.head.rotation.y=yaw;t.rotor.rotation.z-=rpm/60*Math.PI*2*dt;}
  };
- return {group,update,count:{buildings:features.buildings.length,turbines:turbines.length}};
+ return {group,update,lamps,count:{buildings:features.buildings.length,turbines:turbines.length}};
 }

@@ -16,7 +16,7 @@ It's a "reality meme": take the real place and get the feeling right. The ground
 
 | Real | Painted |
 |---|---|
-| **Terrain:** Environment Agency 1–2 m LiDAR, dunes, flats, channels and Black Combe at true height | **Sky:** approximate single scattering, ray-marched cumulus with Worley billows, an overcast deck |
+| **Terrain:** Environment Agency 1–2 m LiDAR, dunes, flats, channels and Black Combe at true height | **Sky:** a physically based atmosphere (air, sea haze, ozone; Hillaire 2020) in real units, metered like a camera; ray-marched cumulus, an overcast deck |
 | **Land cover:** OpenStreetMap saltmarsh, sand, tracks, roads and fields, plus 13,000 building footprints and the wind turbines | **Sea:** directional waves layered by distance, waves that bend to the real shoreline and break, lace whitewater, sun glitter and glints |
 | **Sun and stars:** the true sun path and ~75 bright stars for any date and time over Walney | **Marram:** ~270,000 blades moving in one shared wind, with hero tussocks up close |
 | **Colours:** sampled from my own photos and a 360° pano from the Sandscale dunes | **Tide:** a real-height tide slider that floods the flats and marsh, with swash, pools and mirror-wet sand |

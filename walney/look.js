@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import {STARS} from './sky-clock.js';
-import {Fn,uniform,float,vec2,vec3,vec4,color,texture,mix,smoothstep,max,min,abs,pow,dot,normalize,reflect,clamp,cos,sin,acos,exp,fract,floor,step,length,fog,screenUV,screenCoordinate,uniformArray,output,log,
+import {createAtmosphere} from './atmo.js';
+import {Fn,uniform,float,vec2,vec3,vec4,color,texture,mix,smoothstep,max,min,abs,pow,dot,normalize,reflect,clamp,cos,sin,acos,exp,fract,floor,step,length,fog,asin,sign,sqrt,screenUV,screenCoordinate,uniformArray,output,log,
  positionWorld,normalWorld,cameraPosition,reflectVector,bumpMap} from 'three/tsl';
 
 // The look of the Walney scene, matched to photos of the place: summer sky
@@ -12,7 +13,11 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   sun:uniform(new THREE.Vector3(0,1,0)),time:uniform(0),tide:uniform(tide),tint:uniform(1),
   wind:uniform(new THREE.Vector2(.87,-.5)),windSpeed:uniform(7),   // m/s; blowing toward the ENE (a south-westerly, onshore here)
   swell:uniform(.8),clouds:uniform(.5),haze:uniform(1),
-  debug:uniform(0),overcast:uniform(0),waveScale:uniform(.55),skyGain:uniform(.8),
+  debug:uniform(0),overcast:uniform(0),waveScale:uniform(.55),
+  // physical light, all pre-exposed (cd/m2 x expo): set each frame from the atmosphere model
+  expo:uniform(2.5e-5),sunE:uniform(3.2),sunT:uniform(new THREE.Vector3(.9,.8,.7)),msG:uniform(new THREE.Vector3()),
+  bR:uniform(new THREE.Vector3(5.802e-6,13.558e-6,33.1e-6)),bMs:uniform(1.5e-5),bMe:uniform(1.6e-5),zenTau:uniform(new THREE.Vector3(.05,.11,.27)),
+  deckL:uniform(new THREE.Vector3()),deckCover:uniform(0),sunDirect:uniform(1),
   stars:uniformArray(STARS.map(()=>new THREE.Vector4(0,-1,0,0)),'vec4'),   // scene direction + brightness, set by the sky clock
   toCel:uniform(new THREE.Matrix3()),                                          // scene direction -> celestial frame, set by the sky clock
   sunLight:uniform(new THREE.Vector3(3,3,3)),skyAmb:uniform(new THREE.Vector3(.2,.3,.5))   // scene-unit sun and skylight, set from the sun's height
@@ -37,31 +42,44 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  });
 
  // ---------- atmosphere ----------
- // An approximate single-scattering sky: sunlight is reddened by the air it
- // crosses (more air when the sun is low), then scattered toward the eye by
- // air molecules (blue, even all round) and haze (white, bunched round the sun).
- // Not a full simulation, but it gives a believable blue day, a bright hazy
- // horizon and sunsets from the same few lines. Values are HDR.
- const ESUN=26;
- const BR=vec3(5.8e-6,13.5e-6,33.1e-6).mul(8000),BM=vec3(12e-6).mul(1200);   // a clear summer day: little haze in the sky itself
- const airMass=mu=>{const m=clamp(mu,0,1),z=acos(m).mul(57.2958);return float(1).div(m.add(pow(max(float(96.07995).sub(z),.5),-1.6364).mul(.50572)));};
- const sunTrans=muS=>exp(BR.add(BM).mul(airMass(muS)).negate()).mul(smoothstep(-.06,.03,muS));
+ // The sky comes from a physically based model (atmo.js): a small table of sky
+ // radiance around the sun, rebuilt on the CPU when the sun or haze moves. Here it
+ // is looked up, scaled by the exposed sun, and the sun's disc, the faint airglow of
+ // the night sky and the overcast deck are added. Values are pre-exposed HDR.
+ const atmo=createAtmosphere();
+ const skyData=new Uint16Array(atmo.SW*atmo.SH*4);
+ const skyTex=new THREE.DataTexture(skyData,atmo.SW,atmo.SH,THREE.RGBAFormat,THREE.HalfFloatType);
+ skyTex.magFilter=skyTex.minFilter=THREE.LinearFilter;skyTex.wrapS=skyTex.wrapT=THREE.ClampToEdgeWrapping;
+ const updateSkyTex=()=>{
+  const h=THREE.DataUtils.toHalfFloat;
+  for(let i=0;i<atmo.SW*atmo.SH;i++){for(let c=0;c<3;c++)skyData[i*4+c]=h(atmo.sky[i*3+c]*1e3);skyData[i*4+3]=h(1);}
+  skyTex.needsUpdate=true;
+ };
  const hg=(c,g)=>float(1-g*g).div(pow(float(1+g*g).sub(c.mul(2*g)),1.5).mul(12.566));
+ const clearSky=Fn(([d])=>{
+  const s=normalize(U.sun);
+  const el=asin(clamp(d.y,-1,1));
+  const az=acos(clamp(dot(normalize(d.xz.add(vec2(1e-6,0))),normalize(s.xz.add(vec2(1e-6,0)))),-1,1)).div(Math.PI);
+  const v=sign(el).mul(sqrt(abs(el).div(Math.PI/2))).mul(.5).add(.5);
+  const uv=vec2(az.mul(atmo.SW-1).add(.5).div(atmo.SW),v.mul(atmo.SH-1).add(.5).div(atmo.SH));
+  return texture(skyTex,uv).rgb.mul(U.sunE.mul(1e-3));
+ });
+ // the overcast deck, as the CIE overcast sky: three times brighter overhead than at the
+ // horizon, L = Lz (1 + 2 sin el) / 3, scaled so it gives the ground the same light. Thicker
+ // patches of the deck let less through.
+ const deck=d=>{
+  const pc=d.xz.div(max(d.y,.04)).mul(1400).add(normalize(U.wind).mul(U.time.mul(U.windSpeed)));
+  const thick=F(pc.mul(1/3000),.9).mul(.6).add(F(pc.mul(1/900),2.3).mul(.4));
+  const patchy=mix(1.25,.6,smoothstep(.35,.75,thick)).mul(smoothstep(.03,.2,d.y)).add(smoothstep(.2,.03,d.y).mul(.95));   // smooth toward the horizon
+  return U.deckL.mul(max(d.y,0).mul(2).add(1).mul(9/21)).mul(patchy);
+ };
  const atmosphere=Fn(([dir])=>{
-  const d=normalize(dir).toVar(),s=normalize(U.sun);
-  const c=dot(d,s);
-  // looking up, you see light scattered high in the air, which crossed less of it: bluer overhead at sunset
-  const ts=sunTrans(s.y.add(max(d.y,0).mul(.45).mul(smoothstep(-.04,.08,s.y))).add(.01));   // (only while the sun is up)
-  const phaseR=float(1).add(c.mul(c)).mul(.0597),phaseM=hg(c,.76);
-  const tauV=BR.add(BM).mul(airMass(max(d.y,0))).mul(.7);                           // a thinner pale band: the sky stays blue to a few degrees up
-  const scatter=BR.mul(phaseR).add(BM.mul(phaseM)).div(BR.add(BM));
-  const col=ts.mul(scatter).mul(float(1).sub(exp(tauV.negate()))).mul(ESUN).toVar();
-  col.addAssign(ts.mul(ESUN*3).mul(smoothstep(.99994,.99998,c)).mul(step(0,d.y)).mul(pow(float(1).sub(U.overcast),3)));   // the sun's disc, gone behind a deck
-  col.addAssign(vec3(.002,.003,.007));                                                   // night floor
-  // overcast: a grey stratus deck, brightest overhead, hides the blue and the sun's disc
-  const day=smoothstep(-.05,.35,s.y).mul(.85).add(smoothstep(-.1,0,s.y).mul(.15));
-  const deck=vec3(.62,.65,.7).mul(day).mul(smoothstep(-.05,.6,d.y).mul(.6).add(.55)).mul(1.35);
-  return mix(col,deck,U.overcast.mul(.92)).mul(U.skyGain);   // sky brightness against the sunlit land (the photo's sky sits about a stop lower)
+  const d=normalize(dir).toVar(),c=dot(d,normalize(U.sun));
+  const col=clearSky(d).toVar();
+  // the sun's disc (radius ~0.5 deg, solid angle 2.5e-4 sr), dimmed by any deck
+  col.addAssign(U.sunT.mul(U.sunE.div(.00025)).mul(U.sunDirect).mul(smoothstep(.99994,.99998,c)).mul(step(0,d.y)).min(6e4));
+  col.addAssign(vec3(.75,.9,1.2).mul(1.6e-4).mul(U.expo));                       // airglow: the moonless night sky, ~22 mag/arcsec2
+  return mix(col,deck(d),U.deckCover);
  });
 
  // ---------- clouds ----------
@@ -108,7 +126,8 @@ export function createLook({noiseTex,far,near,tide,landcover}){
    const toward=cloudDensity(pos.xz.add(s.xz.mul(260)));                 // how much cloud lies toward the sun
    const sunT=exp(toward.mul(float(1).sub(h.mul(.6))).mul(-2.6));
    const powder=float(1).sub(exp(den.mul(-3)));                          // dark cores, bright edges
-   const S=U.sunLight.mul(sunT).mul(phase.add(.8)).mul(powder.mul(.6).add(.4)).mul(1.5).add(U.skyAmb.mul(float(.35).add(h.mul(.65))).mul(2.4));
+   // physical scale: a thick cloud's sunlit side glows at ~0.25 x the sun's illuminance (albedo ~0.7 / pi)
+   const S=U.sunLight.mul(sunT).mul(phase.add(.8)).mul(powder.mul(.6).add(.4)).mul(.26).add(U.skyAmb.mul(float(.35).add(h.mul(.65))).mul(1.1));
    const a=float(1).sub(exp(den.mul(ds).mul(-.012)));
    L.addAssign(S.mul(a).mul(T));
    T.mulAssign(float(1).sub(a));
@@ -132,35 +151,38 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  const sky=Fn(([dir])=>{
   const d=normalize(dir).toVar();
   const c=atmosphere(d).toVar();
-  c.assign(mix(c,U.sunLight.mul(.55).add(U.skyAmb.mul(1.5)),cirrus(d)));
+  c.assign(mix(c,U.sunLight.mul(.08).add(U.skyAmb.mul(.8)),cirrus(d)));
   const t=float(CB+400).sub(cameraPosition.y).div(max(d.y,.02));
   const dens=cloudDensity(cameraPosition.xz.add(d.xz.mul(t))).mul(smoothstep(0,.05,d.y));
-  const cloudC=U.sunLight.mul(.32).add(U.skyAmb.mul(1.6));
+  const cloudC=U.sunLight.mul(.22).add(U.skyAmb.mul(.7));
   c.assign(mix(c,cloudC,dens.mul(.9)));
   return c;
  });
  const skyFull=Fn(([dir])=>{
   const d=normalize(dir).toVar();
   const c=atmosphere(d).toVar();
-  c.assign(mix(c,U.sunLight.mul(.55).add(U.skyAmb.mul(1.5)),cirrus(d)));
+  c.assign(mix(c,U.sunLight.mul(.08).add(U.skyAmb.mul(.8)),cirrus(d)));   // thin ice: dim, mostly sky-lit
   const cl=cloudMarch(d);
   // cumulus sink into the deck as it thickens, leaving darker shapes in the grey
   const withClouds=c.mul(cl.w).add(cl.xyz).add(c.mul(float(1).sub(cl.w)).mul(U.overcast.mul(.8))).toVar();   // under the deck, cloud takes the deck's grey light
-  // the bright stars at their real places for the clock's date and time; they come
-  // out as the sun sinks below about -2 deg, and hide behind cloud, deck and horizon haze
-  const night=smoothstep(-.03,-.14,normalize(U.sun).y).mul(pow(float(1).sub(U.overcast),2)).mul(cl.w).mul(smoothstep(.0,.14,d.y));
+  // the stars at their real brightness: a star of magnitude m gives 2.08e-6 x 10^(-0.4 m) lux,
+  // spread over a small spot. No day/night switch: by day the sky is ten thousand times brighter
+  // and they vanish; at night the exposure opens up and they appear. Air dims them low down.
+  const clearView=pow(float(1).sub(U.overcast),2).mul(cl.w).mul(float(1).sub(U.deckCover)).mul(step(0,d.y))
+   .mul(exp(U.zenTau.mul(float(1).div(max(d.y,.035))).negate()));
   const starLight=float(0).toVar();
   for(let i=0;i<STARS.length;i++){const e=U.stars.element(i);const tw=sin(U.time.mul(5+i%7).add(i*2.3)).mul(.15).add(.85);starLight.addAssign(e.w.mul(tw).mul(exp(dot(d,e.xyz).sub(1).div(1.4e-6))));}
-  withClouds.addAssign(vec3(1,.96,.9).mul(starLight).mul(night).mul(9));
-  // thousands of faint fill stars (random, but turning with the real sky) and the
-  // Milky Way along its true path, both in the celestial frame
+  withClouds.addAssign(vec3(1,.96,.9).mul(clearView).mul(starLight.mul(2.08e-6/(2*Math.PI*1.4e-6))).mul(U.expo));
+  // the fainter stars (magnitude 4-7, ~900 per steradian, random but turning with the real sky)
+  // and the Milky Way along its true path (~21 mag/arcsec2 at its brightest)
   const cel=U.toCel.mul(d);
-  const q=cel.mul(420),cell=floor(q),h3=fract(sin(vec3(dot(cell,vec3(127.1,311.7,74.7)),dot(cell,vec3(269.5,183.3,246.1)),dot(cell,vec3(113.5,271.9,124.6)))).mul(43758.5453));
-  const off=fract(q).sub(h3.mul(.7).add(.15));
-  const fill=step(.86,h3.x).mul(exp(dot(off,off).div(-.012))).mul(pow(h3.y,6).mul(.5).add(.03));
+  const q=cel.mul(240),cell=floor(q),h3=fract(sin(vec3(dot(cell,vec3(127.1,311.7,74.7)),dot(cell,vec3(269.5,183.3,246.1)),dot(cell,vec3(113.5,271.9,124.6)))).mul(43758.5453));
+  const off=fract(q).sub(h3.mul(.4).add(.3));
+  const mag=float(7).sub(pow(h3.y,2).mul(3));
+  const fill=step(.985,h3.x).mul(exp(dot(off,off).div(-.04))).mul(pow(float(10),mag.mul(-.4))).mul(2.08e-6/(2*Math.PI*.02/(240*240)));
   const gp=vec3(-.8676,-.1981,.456),gc=vec3(-.055,-.8734,-.4839);
   const band=exp(pow(dot(cel,gp),2).div(-.016)).mul(dot(cel,gc).mul(.5).add(.6)).mul(F(cel.xy.mul(26).add(cel.z.mul(11)),.4).mul(.8).add(.4));
-  withClouds.addAssign(vec3(1,.97,.92).mul(fill.mul(2.2).add(band.mul(.035))).mul(night));
+  withClouds.addAssign(vec3(1,.97,.92).mul(fill.add(band.mul(5e-4))).mul(clearView).mul(U.expo));
   return withClouds.mul(step(0,d.y)).add(atmosphere(vec3(d.x,.0,d.z)).mul(step(d.y,0)));
  });
  // what a rough water or wet surface mirrors: facets tilt the view up off the pale horizon band,
@@ -170,25 +192,26 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  skyMaterial.colorNode=skyFull(positionWorld.sub(cameraPosition));
 
  // ---------- aerial perspective ----------
- // Haze thickens toward sea level (1.2 km scale height) and takes its colour
- // from the sky in the direction you look: warm toward a low sun, blue away.
- const fogFactor=Fn(()=>{
-  const v=positionWorld.sub(cameraPosition),dist=v.length();
+ // Hillaire's aerial perspective, evaluated per pixel: along the path to a surface the
+ // air and haze (densities averaged over the path's heights) dim what is behind
+ // and add in-scattered sunlight, multiple scattering, or the deck's grey light.
+ // Blue scatters most, so distant land takes a blue veil and only far off washes pale.
+ const aerial=Fn(([surf])=>{
+  const v=positionWorld.sub(cameraPosition),dist=v.length(),n=v.div(dist);
   const y0=cameraPosition.y,y1=positionWorld.y,ym=y0.add(y1).mul(.5);
-  const e=y=>exp(max(y,-50).div(-1200));
-  const od=dist.mul(e(y0).add(e(ym).mul(4)).add(e(y1)).div(6)).mul(U.haze.add(U.overcast.mul(2.2)).mul(.00006));
-  return float(1).sub(exp(od.negate()));
+  const avg=H=>{const e=y=>exp(max(y,-50).div(-H));return e(y0).add(e(ym).mul(4)).add(e(y1)).div(6);};
+  const rR=avg(atmo.HR),rM=avg(atmo.HM);
+  const sR=U.bR.mul(rR),sM=U.bMs.mul(rM),scat=sR.add(sM);
+  const ext=U.bR.mul(rR).add(U.bMe.mul(rM)).max(1e-9);
+  const c=dot(n,normalize(U.sun));
+  const pR=c.mul(c).add(1).mul(3/(16*Math.PI)),pM=hg(c,atmo.GM);
+  const clear=U.sunT.mul(sR.mul(pR).add(sM.mul(pM))).add(U.msG.mul(scat)).mul(U.sunE);
+  const grey=U.deckL.mul(scat).mul(.6);                 // lit evenly from above, and a little from the ground
+  const S=mix(clear,grey,U.deckCover);
+  const Tr=exp(ext.mul(dist).negate());
+  return surf.mul(Tr).add(S.div(ext).mul(vec3(1).sub(Tr)));
  });
- // Per-channel haze: air scatters blue most, so over a few km distant land takes a
- // blue veil (as in the pano), and only far away does it wash out pale. The light
- // added back is the sky's colour a little above the horizon in that direction.
- const fogNode=Fn(()=>{
-  const v=positionWorld.sub(cameraPosition),n=normalize(v);
-  const od=float(1).sub(fogFactor()).max(1e-6).log().negate();               // optical depth for blue
-  const T=exp(vec3(.38,.62,1).mul(od).negate());                             // red and green get through further
-  const sky=atmosphere(vec3(n.x,max(n.y,0).add(.12),n.z));
-  return vec4(output.rgb.mul(T).add(sky.mul(vec3(1).sub(T))),output.a);
- })();
+ const fogNode=Fn(()=>vec4(aerial(output.rgb),output.a))();
 
  // ---------- sea field: bed height, distance from the waterline, openness ----------
  // Recomputed whenever the tide moves, so breaker lines follow the real waterline.
@@ -244,7 +267,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  const bedAt=p=>mix(seaField(p).x,texture(nearTex,p.sub(vec2(near.west,near.north)).div(vec2(near.w*near.res,near.hgt*near.res))).r,inLayer(near,p,200));
 
  // ---------- ground ----------
- const ground=new THREE.MeshStandardNodeMaterial({roughness:.95});
+ const ground=new THREE.MeshPhysicalNodeMaterial({roughness:.95});
  const y=positionWorld.y,up=normalWorld.y,p=positionWorld.xz;
  const range=cameraPosition.sub(positionWorld).length();
  const grain=F(p.mul(.9),.2),patch=F(p.mul(.012),1.3);
@@ -270,6 +293,9 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  const flatC=mix(estuaryC,sandLike0,exposed);                                             // exposed tidal flats are beach sand
  const sandLike=mix(wetSandC,drySandC,smoothstep(1.2,3.,aboveTide));
  const duneC=mix(mix(marramC,slackC,hollow.mul(.6)),drySandC.mul(.82),smoothstep(.82,.7,up).mul(smoothstep(.68,.74,F(p.mul(.05),2.6))).mul(.8));
+ // Real reflectance, measured against the pano under the physical light: plants return only
+ // ~10% of visible light (the palette above is their colour; this is how much of it).
+ const REFLECT={3:vec3(.4,.38,.27),13:vec3(.4,.38,.27),4:vec3(.25,.29,.31),6:vec3(.33),7:vec3(.33),8:vec3(.33),9:vec3(.33),11:vec3(.33),bare:vec3(.7)};
  const PALETTE={1:sandLike,2:shingleC,3:duneC,4:marshC,5:color('#6d6455'),6:mix(color('#3f4f26'),color('#56602f'),grain),7:heatherC,8:pastureC,
   9:mix(color('#2f4326'),color('#3f5530'),patch),10:color('#4c6774'),11:mix(color('#8a8781'),color('#6e7a52'),smoothstep(.45,.6,F(p.mul(.05),.7)).mul(.6)),
   12:rockC,13:slackC,14:flatC,20:color('#58595b'),21:mix(color('#cbc5b7'),color('#ddd8cb'),grain),22:color('#b4a586'),24:mix(color('#6e625e'),color('#8a7f78'),patch)};
@@ -292,19 +318,20 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  const is=k=>lcMask?lcMask(k):float(0);
  const ground0=Fn(()=>{
   // height rules: what the ground is where the map has nothing to say
-  const g=mix(wetSandC,drySandC,smoothstep(1.2,3.,aboveTide)).toVar();
-  g.assign(mix(g,shingleC,smoothstep(2.6,3.4,y).mul(beach).mul(max(smoothstep(.55,.35,patch.add(grain.mul(.2))),.4))));
+  const R=k=>REFLECT[k]??REFLECT.bare;
+  const g=mix(wetSandC,drySandC,smoothstep(1.2,3.,aboveTide)).mul(R(1)).toVar();
+  g.assign(mix(g,shingleC.mul(R(2)),smoothstep(2.6,3.4,y).mul(beach).mul(max(smoothstep(.55,.35,patch.add(grain.mul(.2))),.4))));
   const dune=float(1).sub(beach).mul(smoothstep(3.5,5,y));
-  g.assign(mix(g,duneC,dune));
-  g.assign(mix(g,pastureC,smoothstep(500,1200,hwDist).mul(smoothstep(4,8,y))));
-  g.assign(mix(g,fellC,smoothstep(60,140,y)));
-  g.assign(mix(g,heatherC,smoothstep(200,380,y).mul(smoothstep(.3,.6,patch.add(.25)))));
-  g.assign(mix(g,rockC,smoothstep(.8,.62,up)));
+  g.assign(mix(g,duneC.mul(R(3)),dune));
+  g.assign(mix(g,pastureC.mul(R(8)),smoothstep(500,1200,hwDist).mul(smoothstep(4,8,y))));
+  g.assign(mix(g,fellC.mul(R(7)),smoothstep(60,140,y)));
+  g.assign(mix(g,heatherC.mul(R(7)),smoothstep(200,380,y).mul(smoothstep(.3,.6,patch.add(.25)))));
+  g.assign(mix(g,rockC.mul(R(12)),smoothstep(.8,.62,up)));
   if(lcMask){
    const acc=vec3(0).toVar(),wsum=float(0).toVar();
    // footpaths and tracks are trodden lines you only see up close: fade them out with distance
    const pathFade=float(1).sub(smoothstep(600,2500,range));
-   for(const [k,c] of Object.entries(PALETTE)){const m=+k===21||+k===22?is(+k).mul(pathFade):is(+k);acc.addAssign(c.mul(m));wsum.addAssign(m);}
+   for(const [k,c] of Object.entries(PALETTE)){const m=+k===21||+k===22?is(+k).mul(pathFade):is(+k);acc.addAssign(c.mul(REFLECT[k]??REFLECT.bare).mul(m));wsum.addAssign(m);}
    g.assign(acc.add(g.mul(max(float(1).sub(wsum),0))));
   }
   return g;
@@ -325,12 +352,14 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  const clay=color('#a7a59e');
  // beyond the grass blades the dunes keep moving: gusts sweep a silver sheen across them
  const duneMask=lcMask?is(3).add(is(4).mul(.6)).add(is(8).mul(.45)).add(is(13).mul(.5)):float(1).sub(beach).mul(smoothstep(4.5,6,y)).mul(float(1).sub(smoothstep(40,90,y)));
- const sheen=gust(p).mul(duneMask);
+ const sheen=gust(p).mul(duneMask);   // gusts lay the grass over and show its paler side
  const shade=cloudShade(positionWorld);
- ground.colorNode=mix(clay,mix(mix(ground0.mul(ripTone),color('#cfcdb8'),sheen.mul(.22)).mul(mix(1,.62,wet.mul(.5))),color('#55657a'),pool.mul(.6)),U.tint).mul(shade);
+ ground.colorNode=mix(clay,mix(ground0.mul(ripTone).mul(sheen.mul(.35).add(1)).mul(mix(1,.62,wet.mul(.5))),color('#55657a'),pool.mul(.6)),U.tint).mul(shade);
  const wetFlat=max(max(wet,is(14).mul(float(1).sub(exposed)).mul(.55)),mirror);    // estuary flats stay glossy long after the tide drops
  ground.roughnessNode=mix(float(.95),mix(mix(mix(.95,.35,wetFlat),.12,mirror),.04,pool),U.tint);
- ground.envNode=sky(vec3(0,1,0)).mul(.1).div(U.skyGain);                                     // soft skylight, no tint from reflections
+ // dry ground and plant cover hide most of their glancing reflection in their own shadows;
+ // only wet sand, flats and pools keep a full water-like specular
+ ground.specularIntensityNode=mix(float(.12),float(1),max(max(wetFlat,mirror),pool));
  const eyeG=normalize(cameraPosition.sub(positionWorld));
  const fresG=float(.02).add(pow(float(1).sub(max(dot(normalWorld,eyeG),0)),5).mul(.98));
  const gloss=max(max(wetFlat.mul(.35),pool),mirror.mul(.85));
@@ -422,18 +451,5 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  const hwDistAt=(x,z)=>fieldAt(hw,x,z)*far.res;
  // exposure to the open sea (fixed): the West Shore is exposed, the Duddon sheltered at any tide
  const exposureAt=p=>texture(expTex,p.sub(vec2(far.west,far.north)).div(vec2(far.w*far.res,far.hgt*far.res))).r;
- return {U,sky,skyRefl,skyMaterial,ground,sea,updateSea,gust,cloudShade,F,V,hwDistAt,SWASH,fogNode,sunLightingFor,seaField,bedAt,exposureAt};
-}
-
-// CPU twin of the atmosphere, for the scene's lights: the sun's colour after
-// crossing the air at this elevation, and the zenith sky's colour (both HDR).
-export function sunLightingFor(sun){
- const m=Math.min(Math.max(sun.y,0),1),z=Math.acos(m)*57.2958;
- const am=1/(m+.50572*Math.pow(Math.max(96.07995-z,.5),-1.6364));
- const br=[5.8e-6*8000,13.5e-6*8000,33.1e-6*8000],bm=12e-6*1200;
- const fade=Math.min(Math.max((sun.y+.06)/.09,0),1),fs=fade*fade*(3-2*fade);
- const T=br.map(b=>Math.exp(-(b+bm)*am)*fs);
- const c=sun.y,pr=(1+c*c)*.0597,pm=(1-.76*.76)/(12.566*Math.pow(1+.76*.76-2*.76*c,1.5));
- const zen=br.map((b,i)=>T[i]*(b*pr+bm*pm)/(b+bm)*(1-Math.exp(-(b+bm)))*26+[.002,.003,.007][i]);
- return {T,zen};
+ return {U,atmo,updateSkyTex,aerial,sky,skyRefl,skyMaterial,ground,sea,updateSea,gust,cloudShade,F,V,hwDistAt,SWASH,fogNode,seaField,bedAt,exposureAt};
 }

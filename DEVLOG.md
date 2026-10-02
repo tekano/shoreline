@@ -1,5 +1,19 @@
 # Devlog
 
+## 013: One physical sky (v0.4.0, 2026-10-02)
+
+Up to now the sky, sun, haze, overcast and exposure were separate fudges, each tuned by eye, so fixing one broke another ("the exposure range is one or the other"). v0.4 replaces them with one physically based model, the same approach as Unreal's SkyAtmosphere (Hillaire 2020), in [`walney/atmo.js`](walney/atmo.js).
+- **Real units:** sunlight arrives at 128,000 lux above the air. Air (Rayleigh), sea haze (Mie) and ozone have real scattering coefficients, evaluated at sRGB-like wavelengths (615/550/465 nm) so twilight is blue, not purple.
+- **Small tables, built on the CPU:** transmittance, multiple scattering and the sky view (a few ms). The same numbers light the land, meter the exposure and feed the shaders. Checked against known values: 84,000 lux of noon sun, a zenith of ~3,000 cd/m², ~1,000 lux at sunset, 7 lux at the end of civil twilight.
+- **The sky darkens upward** and blues overhead on its own; the haze over distance (aerial perspective) uses the same air along each path.
+- **Haze** is now aerosol: each slider step doubles it, and the readout gives the visibility in km.
+- **Overcast** is a cloud deck with an optical depth: it blocks the sun and diffuses the rest, so a thick deck is 2-3 stops darker than sunshine. The deck follows the CIE overcast sky (3x brighter overhead than at the horizon), with thicker, darker patches.
+- **Exposure** meters the light like a camera, with partial adaptation by day (overcast still looks darker) and much more at night. The slider is ± stops; the readout shows the metered EV100 (~15 at noon, ~6 at dusk, ~-5 at night). The key matches the phone that took the pano, with a fixed daylight white balance.
+- **Stars at their real brightness** (2.08e-6 x 10^(-0.4 m) lux each). There is no day/night switch any more: by day the sky is 10,000x brighter and they vanish; at night the exposure opens and they appear over black land. The Milky Way and airglow have real surface brightness too.
+- **Night lights:** the wind turbines carry their aviation lights (steady red, 200 cd, the UK CAA's dimmed setting in good visibility), drawn at true intensity through the haze ([`walney/lights.js`](walney/lights.js)).
+- **Reflectance re-measured** against the pano under the physical light: plants reflect only ~10% of visible light. Two old shortcuts showed up and were fixed: a gust sheen that mixed in a fixed pale colour, and full glancing specular on dry ground and grass, which a real canopy hides in its own shadows.
+- The old Sky gain slider is gone; the grade defaults to neutral (contrast 1), since the light now has its own range.
+
 ## 012: Scale, chop and shelter (2026-10-02)
 
 The waves gave the scale away: too big, and running in long identical bands.
