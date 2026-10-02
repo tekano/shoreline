@@ -17,6 +17,20 @@ export function createLook({noiseTex,far,tide}){
  const F=(p,a=0)=>noise(rot(p,a).mul(1/8)).r;   // ~1 cycle per unit, four octaves
  const V=(p,a=0)=>noise(rot(p,a).mul(1/48)).g;
 
+ // ---------- wind ----------
+ // One gust field for everything that moves in the wind: ~80 m wide gusts
+ // rolling downwind a little slower than the wind, over finer flurries.
+ // Returns 0 (lull) .. 1 (gust). Grass, ground sheen, whitecaps and (later)
+ // the wind sound all read this same field, so they agree with each other.
+ const gust=Fn(([p])=>{
+  const wdir=normalize(U.wind);
+  const drift=wdir.mul(U.time.mul(U.windSpeed).mul(.85));
+  const q=p.sub(drift);
+  const big=F(vec2(dot(q,wdir),dot(q,vec2(wdir.y.negate(),wdir.x)).mul(.6)).mul(.011),.4);
+  const small=V(q.mul(.05).sub(wdir.mul(U.time.mul(.15))),1.3);
+  return smoothstep(.32,.78,big.mul(.75).add(small.mul(.25)));
+ });
+
  // ---------- sky ----------
  const sky=Fn(([dir])=>{
   const d=normalize(dir).toVar(),el=max(d.y,0);
@@ -99,7 +113,7 @@ export function createLook({noiseTex,far,tide}){
   const dune=float(1).sub(beach).mul(smoothstep(3.5,5,y));
   const hollow=smoothstep(.45,.6,F(p.mul(.02),.8));
   g.assign(mix(g,mix(marramC,slackC,hollow.mul(.6)),dune));
-  g.assign(mix(g,drySandC,dune.mul(smoothstep(.9,.8,up)).mul(smoothstep(.62,.7,F(p.mul(.05),2.6)))));
+  g.assign(mix(g,drySandC.mul(.82),dune.mul(smoothstep(.82,.7,up)).mul(smoothstep(.68,.74,F(p.mul(.05),2.6))).mul(.8)));
   g.assign(mix(g,pastureC,smoothstep(500,1200,hwDist).mul(smoothstep(4,8,y))));
   g.assign(mix(g,fellC,smoothstep(60,140,y)));
   g.assign(mix(g,heatherC,smoothstep(200,380,y).mul(smoothstep(.3,.6,patch.add(.25)))));
@@ -110,7 +124,10 @@ export function createLook({noiseTex,far,tide}){
  const runnel=F(p.mul(vec2(.05,.006)),.05).mul(.75).add(F(p.mul(vec2(.2,.05)),1.7).mul(.25));
  const pool=smoothstep(.635,.655,runnel).mul(wet).mul(smoothstep(.985,.995,up));
  const clay=color('#a7a59e');
- ground.colorNode=mix(clay,mix(ground0.mul(mix(1,.55,wet.mul(.5))),color('#6f86a3'),pool.mul(.85)),U.tint);
+ // beyond the grass blades the dunes keep moving: gusts sweep a silver sheen across them
+ const duneMask=float(1).sub(beach).mul(smoothstep(4.5,6,y)).mul(float(1).sub(smoothstep(40,90,y)));
+ const sheen=gust(p).mul(duneMask);
+ ground.colorNode=mix(clay,mix(mix(ground0,color('#cfcdb8'),sheen.mul(.22)).mul(mix(1,.55,wet.mul(.5))),color('#6f86a3'),pool.mul(.85)),U.tint);
  ground.roughnessNode=mix(float(.95),mix(mix(.95,.35,wet),.04,pool),U.tint);
  ground.envNode=sky(reflectVector).mul(mix(.12,mix(.12,.75,max(wet.mul(.25),pool)),U.tint));
 
@@ -170,5 +187,8 @@ export function createLook({noiseTex,far,tide}){
  })();
  sea.fog=true;
 
- return {U,sky,skyMaterial,ground,sea,updateSea};
+ // CPU twins for placing things: zone at a point from the far grid
+ const fieldAt=(arr,x,z)=>{const i=Math.min(Math.max(Math.round((x-far.west)/far.res-.5),0),far.w-1),j=Math.min(Math.max(Math.round((z-far.north)/far.res-.5),0),far.hgt-1);return arr[j*far.w+i];};
+ const hwDistAt=(x,z)=>fieldAt(hw,x,z)*far.res;
+ return {U,sky,skyMaterial,ground,sea,updateSea,gust,F,V,hwDistAt};
 }

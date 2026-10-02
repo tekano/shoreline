@@ -75,6 +75,51 @@
    "sunaz": 195,
    "sunel": 52
   },
+  "nwalney_dunes": {
+   "label": "North Walney dune crest, marram over the surf",
+   "pos": [
+    162.0,
+    -3142.0
+   ],
+   "heading": 300,
+   "pitch": -9,
+   "eye": 1.7,
+   "mm": 24,
+   "tide": 2.5,
+   "sunaz": 200,
+   "sunel": 50,
+   "motion": "sway",
+   "panDeg": 30,
+   "panSecs": 90
+  },
+  "pano_bc": {
+   "label": "Sandscale pano spot, toward Black Combe",
+   "pos": [
+    1809.4,
+    -4414.2
+   ],
+   "heading": 334.7,
+   "pitch": -2,
+   "eye": 1.6,
+   "mm": 20,
+   "tide": -1.5,
+   "sunaz": 170,
+   "sunel": 58
+  },
+  "pano_marsh": {
+   "label": "Sandscale pano spot, over the saltmarsh",
+   "pos": [
+    1809.4,
+    -4414.2
+   ],
+   "heading": 154.7,
+   "pitch": -4,
+   "eye": 1.6,
+   "mm": 18,
+   "tide": -1.5,
+   "sunaz": 170,
+   "sunel": 58
+  },
   "sandscale": {
    "label": "Sandscale Haws dune ridge, toward Black Combe",
    "pos": [

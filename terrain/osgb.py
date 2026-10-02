@@ -4,7 +4,8 @@ Helmert datum shift plus Transverse Mercator, after the Ordnance Survey's
 "A guide to coordinate systems in Great Britain". Accurate to a few metres,
 which is plenty for placing a camera.
 """
-from math import radians, sin, cos, tan, sqrt, atan2
+import numpy as np
+from numpy import radians, sin, cos, tan, sqrt, arctan2 as atan2
 
 
 def _to_cartesian(lat, lon, a, b, h=0.0):

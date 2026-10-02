@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import {createLook} from './look.js';
+import {createGrass} from './grass.js';
 import {makeNoiseTexture} from '../src/noise.js?v=1.3.0';
 
 // Terrain blockout of a real place: LiDAR heights around a camera you place on
@@ -32,7 +33,7 @@ const height=(x,z)=>{const w=nearEdge(x,z);return w>0?sample(near,x,z)*w+sample(
 const DEFAULT={...meta.cameras.westshore,tide:-1.5,haze:1,sunaz:195,sunel:52,tint:1};
 const saved=read();
 const presets={...meta.cameras,...saved};
-const state={...DEFAULT,...(saved.__last||{})};
+const state={motion:'locked',panDeg:24,panSecs:90,...DEFAULT,...(saved.__last||{})};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
 
 // ---------- renderer ----------
@@ -70,6 +71,17 @@ for(let j=0;j<N-1;j++)for(let i=0;i<N-1;i++){const a=j*N+i,b=a+1,c=a+N,d=c+1;ind
 geometry.setIndex(new THREE.BufferAttribute(index,1));
 const terrain=new THREE.Mesh(geometry,ground);terrain.frustumCulled=false;scene.add(terrain);
 let builtAt=null;
+
+// Where marram grows (stand-in until the OpenStreetMap land cover is wired in):
+// above the high-water line, back from the beach, on the low coastal ground.
+function zone(x,z){
+ const h=height(x,z);if(h<4.6||h>45)return 0;
+ if(look.hwDistAt(x,z)<12)return 0;
+ const e=1.5,slope=Math.hypot(height(x+e,z)-h,height(x,z+e)-h)/e;
+ return slope>1.1?0:h<6?.5:1;
+}
+const grass=createGrass({look,height,zone});scene.add(grass.mesh);
+let grassAt=null;
 function buildTerrain(cx,cz){
  // snap to the far layer's grid so rebuilding does not make the hills crawl
  cx=Math.round(cx/16)*16;cz=Math.round(cz/16)*16;
@@ -81,6 +93,7 @@ function buildTerrain(cx,cz){
 function apply(){
  const [x,z]=state.pos;
  buildTerrain(x,z);
+ if(!grassAt||Math.hypot(x-grassAt[0],z-grassAt[1])>4){grass.update(x,z);grassAt=[x,z];}
  const groundY=height(x,z);
  const camY=Math.max(groundY,state.tide)+state.eye;
  camera.position.set(x,camY,z);
@@ -93,7 +106,8 @@ function apply(){
  const az=state.sunaz*Math.PI/180,el=state.sunel*Math.PI/180;
  sun.position.set(x+Math.sin(az)*Math.cos(el)*5000,camY+Math.sin(el)*5000,z-Math.cos(az)*Math.cos(el)*5000);sun.target.position.set(x,camY,z);
  U.sun.value.set(Math.sin(az)*Math.cos(el),Math.sin(el),-Math.cos(az)*Math.cos(el));
- for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel'])$(k).value=state[k];
+ for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs'])$(k).value=state[k];
+ $('motion').value=state.motion;$('panDeg-v').textContent=state.panDeg;$('panSecs-v').textContent=state.panSecs;
  $('fov').value=state.mm??fovToMm(state.fov);$('tint').value=state.tint;
  $('eye-v').textContent=state.eye.toFixed(1);$('heading-v').textContent=state.heading.toFixed(1);$('pitch-v').textContent=state.pitch.toFixed(1);
  $('fov-v').textContent=Math.round($('fov').value);$('tide-v').textContent=state.tide.toFixed(1);$('haze-v').textContent=state.haze.toFixed(2);
@@ -109,6 +123,8 @@ function fovToMm(v){return Math.round(24/(2*Math.tan(v*Math.PI/360)));}
 for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
 $('fov').oninput=e=>{state.mm=+e.target.value;apply();};
 $('tint').onchange=e=>{state.tint=+e.target.value;apply();};
+for(const k of ['panDeg','panSecs'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
+$('motion').onchange=e=>{state.motion=e.target.value;panStart=performance.now()/1000;apply();};
 function fillPresets(){const all={...meta.cameras,...read()};delete all.__last;$('preset').innerHTML='<option value="">Choose a view…</option>'+Object.entries(all).map(([k,v])=>`<option value="${k}">${v.label||k}</option>`).join('');}
 fillPresets();
 $('preset').onchange=e=>{const all={...meta.cameras,...read()};const p=all[e.target.value];if(p){Object.assign(state,p);if(p.fov&&!p.mm)state.mm=fovToMm(p.fov);apply();}};
@@ -164,7 +180,17 @@ $('credit').textContent=meta.attribution;
 function resize(){const r=view.getBoundingClientRect();if(!r.width||!r.height)return;renderer.setSize(r.width,r.height,false);camera.aspect=r.width/r.height;camera.updateProjectionMatrix();fitMap();}
 new ResizeObserver(resize).observe(view);new ResizeObserver(fitMap).observe(mapCanvas);
 resize();apply();
-renderer.setAnimationLoop(t=>{U.time.value=t/1000;const r=view.getBoundingClientRect();if(r.width&&r.height)renderer.render(scene,camera);});
+// Camera motion for showing it off: an eased sway, or a slow continuous drift.
+// Only the aim changes, so the terrain and grass never rebuild mid-shot.
+let panStart=performance.now()/1000;
+function panHeading(now){
+ const t=now-panStart;
+ if(state.motion==='sway')return state.heading+state.panDeg/2*Math.sin(t/state.panSecs*Math.PI*2);
+ if(state.motion==='right'||state.motion==='left')return state.heading+(state.motion==='right'?1:-1)*state.panDeg*t/state.panSecs;
+ return state.heading;
+}
+renderer.setAnimationLoop(t=>{U.time.value=t/1000;
+ if(state.motion!=='locked'&&!aim)camera.rotation.set(state.pitch*Math.PI/180,-panHeading(t/1000)*Math.PI/180,0,'YXZ');const r=view.getBoundingClientRect();if(r.width&&r.height)renderer.render(scene,camera);});
 // dev: render one frame and save it through tools/serve.py (captures/, git-ignored)
 async function capture(name='walney.png'){renderer.render(scene,camera);const blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/png'));await fetch(`/__capture?name=${encodeURIComponent(name)}`,{method:'POST',body:blob});return name;}
-window.walney={state,apply,height,meta,capture};
+window.walney={state,apply,height,meta,capture,grass,look};

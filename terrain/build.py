@@ -140,6 +140,9 @@ def main():
             'streetview': {'label': 'North Walney (Street View)', 'pos': local(*sv), 'heading': 314.4, 'pitch': 1.0, 'eye': 1.7, 'fov': 60},
             'westshore': {'label': 'West Shore, photo match (toward Black Combe)', 'pos': local(*sv), 'heading': 333, 'pitch': 3, 'eye': 1.6, 'mm': 26, 'tide': -1.5, 'sunaz': 195, 'sunel': 52},
             'westshore_high': {'label': 'West Shore, raised three-quarter view', 'pos': [-250.0, 400.0], 'heading': 343, 'pitch': -11, 'eye': 70, 'mm': 24, 'tide': -1.5, 'sunaz': 195, 'sunel': 52},
+            'nwalney_dunes': {'label': 'North Walney dune crest, marram over the surf', 'pos': [162.0, -3142.0], 'heading': 300, 'pitch': -9, 'eye': 1.7, 'mm': 24, 'tide': 2.5, 'sunaz': 200, 'sunel': 50, 'motion': 'sway', 'panDeg': 30, 'panSecs': 90},
+            'pano_bc': {'label': 'Sandscale pano spot, toward Black Combe', 'pos': [1809.4, -4414.2], 'heading': 334.7, 'pitch': -2, 'eye': 1.6, 'mm': 20, 'tide': -1.5, 'sunaz': 170, 'sunel': 58},
+            'pano_marsh': {'label': 'Sandscale pano spot, over the saltmarsh', 'pos': [1809.4, -4414.2], 'heading': 154.7, 'pitch': -4, 'eye': 1.6, 'mm': 18, 'tide': -1.5, 'sunaz': 170, 'sunel': 58},
             'sandscale': {'label': 'Sandscale Haws dune ridge, toward Black Combe', 'pos': [2235.0, -5459.0], 'heading': 330.5, 'pitch': 0.5, 'eye': 1.7, 'mm': 35},
         },
         'attribution': '© Environment Agency copyright and/or database right 2022. All rights reserved. Contains public sector information licensed under the Open Government Licence v3.0.'

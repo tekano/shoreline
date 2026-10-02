@@ -1,5 +1,28 @@
 # Devlog
 
+## 004: Wind and marram (2026-10-02)
+
+**One wind for everything.** `gust()` in `walney/look.js` is a field of ~80 m gusts rolling downwind a little slower than the wind, over finer flurries.
+- The grass bends with it.
+- The dunes beyond the grass take a silver sheen as gusts sweep across them.
+- Whitecaps and the wind sound will read the same field, so everything agrees.
+
+**Marram** (`walney/grass.js`): about 270,000 instanced blades around the camera, each a tapered strip bent in the vertex shader.
+- **Bending:** each leaf's own arch, the gust field, and a fast per-leaf flutter.
+- **Placement:** clumps near the camera, thinning with distance (blades grow so coverage holds). Hero tussocks in the foreground are fountains of ~260 long arching leaves from one root, so they read as individual leaves, not cards.
+- **Shading:**
+  - lit by the same sun and sky as the terrain, so blades and ground agree;
+  - colour runs from dark olive at the root to straw at the tip, with a silver flash where a gust lays the rolled leaves over;
+  - sun shines through backlit leaves;
+  - normals are bent skyward so thin leaves take the ground's light at distance.
+
+**Bug worth remembering:** in TSL, once `positionNode` is set, `positionLocal` returns the *displaced* position. Shading that wanted the blade's own 0–1 coordinates got world heights instead, and every pixel lit up like a sunlit tip. Read `attribute('position')` for the raw geometry.
+
+**Camera motion:** locked off, a slow eased sway, or a continuous drift. Only the aim changes, so nothing rebuilds mid-shot. It shows that this is real time and 3D.
+
+**Next:** real land cover from OpenStreetMap (saltmarsh, roads and tracks, buildings, fences), then photo cards from the pano for distant structures.
+
+
 ## 003: Matching photos of the place (2026-10-02)
 
 First look pass on the Walney blockout, matched against my own photos: a summer West Shore shot toward Black Combe, and a 360° pano from a dune top at Sandscale Haws. The pano's GPS puts the camera on the LiDAR, and Black Combe and the dune skyline line up to within a few degrees.
