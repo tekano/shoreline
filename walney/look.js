@@ -1,12 +1,12 @@
 import * as THREE from 'three/webgpu';
-import {Fn,uniform,float,vec2,vec3,vec4,color,texture,mix,smoothstep,max,min,abs,pow,dot,normalize,reflect,clamp,cos,exp,fract,
+import {Fn,uniform,float,vec2,vec3,vec4,color,texture,mix,smoothstep,max,min,abs,pow,dot,normalize,reflect,clamp,cos,exp,fract,step,select,
  positionWorld,normalWorld,cameraPosition,reflectVector,If,positionView,screenUV,viewportDepthTexture,perspectiveDepthToViewZ,cameraNear,cameraFar} from 'three/tsl';
 
 // The look of the Walney scene, matched to a summer midday photo from the West
 // Shore: deep blue sky with high cirrus and a low cloud bank on the horizon,
 // light haze, wet sand with sky-mirror pools, a shingle bank, green fells, and
 // a sea coloured by depth with breaker lines that follow the real waterline.
-export function createLook({noiseTex,far,tide}){
+export function createLook({noiseTex,far,tide,landcover}){
  const U={
   sun:uniform(new THREE.Vector3(0,1,0)),time:uniform(0),tide:uniform(tide),tint:uniform(1),
   wind:uniform(new THREE.Vector2(.8,.6)),windSpeed:uniform(7),   // m/s, blowing toward +x/+z (onshore from the south-west)
@@ -46,9 +46,9 @@ export function createLook({noiseTex,far,tide}){
   const cirrus=pow(smoothstep(.45,.85,F(ci,.3)),2).mul(smoothstep(.04,.25,el)).mul(.55);
   c.assign(mix(c,color('#f4f7fb'),cirrus));
   // low cloud bank: a broken layer 1.4 km up that piles toward the horizon
-  const pl=d.xz.div(max(d.y,.012)).mul(1400).mul(.00011).add(vec2(U.time.mul(.0006),U.time.mul(.0002)));
+  const pl=d.xz.div(max(d.y,.025)).mul(1400).mul(.00011).add(vec2(U.time.mul(.0006),U.time.mul(.0002)));
   const dens=F(pl,1.1).mul(.7).add(F(pl.mul(2.7),2.3).mul(.3));
-  const low=smoothstep(.56,.68,dens).mul(float(1).sub(smoothstep(.02,.11,el))).mul(smoothstep(0,.004,el));
+  const low=smoothstep(.56,.68,dens).mul(float(1).sub(smoothstep(.03,.12,el))).mul(smoothstep(.012,.035,el));   // fades before the horizon, where the layer's projection blows up
   const lit=smoothstep(.5,.75,F(pl.add(U.sun.xz.mul(.02)),1.1));
   c.assign(mix(c,mix(color('#93a3b8'),color('#eef1f5'),lit),low.mul(.9)));
   return mix(color('#b9c9d8'),c,smoothstep(-.02,.0,d.y));
@@ -105,31 +105,72 @@ export function createLook({noiseTex,far,tide}){
  const wet=float(1).sub(smoothstep(.25,1.8,aboveTide));               // flats still wet from the last tide
  const hwDist=seaField(p).w;                                           // metres inland of high water
  const beach=float(1).sub(smoothstep(12,40,hwDist));
+ // OpenStreetMap land cover: which class each patch of ground is. Edges are
+ // jittered by a few metres of noise so they read as organic, not as 4 m pixels.
+ const lc=landcover&&(()=>{
+  const q=p.add(vec2(F(p.mul(.13),.3),F(p.mul(.13),1.9)).sub(.5).mul(3));
+  const uv=(L,pt)=>pt.sub(vec2(L.west,L.north)).div(vec2(L.w*L.res,L.hgt*L.res));
+  const un=uv(landcover.near,q),uf=uv(landcover.far,q);
+  const inNear=step(0,un.x).mul(step(un.x,1)).mul(step(0,un.y)).mul(step(un.y,1));
+  return select(inNear.greaterThan(.5),texture(landcover.near.tex,un).r,texture(landcover.far.tex,uf).r).mul(255);
+ })();
+ const is=k=>lc?float(1).sub(step(.5,abs(lc.sub(k)))):float(0);
+ const known=lc?step(.5,lc):float(0);
+ // colours sampled from the Sandscale pano: grey-olive marsh, straw-olive rush bands
+ const marshC=mix(mix(color('#4a5139'),color('#5f6547'),patch),color('#666340'),smoothstep(.55,.7,F(p.mul(.06),2.2)).mul(.6));
+ const mudC=color('#6d6455'),scrubC=mix(color('#3f4f26'),color('#56602f'),grain),woodC=mix(color('#2f4326'),color('#3f5530'),patch);
+ const builtC=mix(color('#8a8781'),color('#6e7a52'),smoothstep(.45,.6,F(p.mul(.05),.7)).mul(.6));      // streets and gardens
+ const roadC=color('#58595b'),trackC=mix(color('#cbc5b7'),color('#ddd8cb'),grain),pathC=color('#b4a586'),roofC=mix(color('#6e625e'),color('#8a7f78'),patch),pondC=color('#4c6774');
+ const hollow=smoothstep(.45,.6,F(p.mul(.02),.8));
  const ground0=Fn(()=>{
   const g=mix(wetSandC,drySandC,smoothstep(1.2,3.,aboveTide)).toVar();
   // shingle and cobbles along the top of the beach
   g.assign(mix(g,shingleC,smoothstep(2.6,3.4,y).mul(beach).mul(max(smoothstep(.55,.35,patch.add(grain.mul(.2))),.4))));
   // dunes: marram on the ridges, greener slacks in the hollows, the odd bare blowout
   const dune=float(1).sub(beach).mul(smoothstep(3.5,5,y));
-  const hollow=smoothstep(.45,.6,F(p.mul(.02),.8));
   g.assign(mix(g,mix(marramC,slackC,hollow.mul(.6)),dune));
   g.assign(mix(g,drySandC.mul(.82),dune.mul(smoothstep(.82,.7,up)).mul(smoothstep(.68,.74,F(p.mul(.05),2.6))).mul(.8)));
   g.assign(mix(g,pastureC,smoothstep(500,1200,hwDist).mul(smoothstep(4,8,y))));
   g.assign(mix(g,fellC,smoothstep(60,140,y)));
   g.assign(mix(g,heatherC,smoothstep(200,380,y).mul(smoothstep(.3,.6,patch.add(.25)))));
   g.assign(mix(g,rockC,smoothstep(.8,.62,up)));
+  if(lc){
+   const sandLike=mix(wetSandC,drySandC,smoothstep(1.2,3.,aboveTide));
+   const duneC=mix(mix(marramC,slackC,hollow.mul(.6)),drySandC.mul(.82),smoothstep(.82,.7,up).mul(smoothstep(.68,.74,F(p.mul(.05),2.6))).mul(.8));
+   g.assign(mix(g,sandLike,is(1)));
+   // estuary flats: wet silver-grey mud-sand rather than beach sand
+   g.assign(mix(g,mix(color('#5d605a'),color('#8a8676'),smoothstep(2.5,4.5,aboveTide)),is(14)));
+   g.assign(mix(g,shingleC,is(2)));
+   g.assign(mix(g,duneC,is(3)));
+   g.assign(mix(g,marshC,is(4)));
+   g.assign(mix(g,mudC,is(5)));
+   g.assign(mix(g,scrubC,is(6)));
+   g.assign(mix(g,heatherC,is(7)));
+   g.assign(mix(g,pastureC,is(8)));
+   g.assign(mix(g,woodC,is(9)));
+   g.assign(mix(g,pondC,is(10)));
+   g.assign(mix(g,builtC,is(11)));
+   g.assign(mix(g,rockC,is(12)));
+   g.assign(mix(g,slackC,is(13)));
+   g.assign(mix(g,roadC,is(20)));
+   g.assign(mix(g,trackC,is(21)));
+   g.assign(mix(g,pathC,is(22)));
+   g.assign(mix(g,roofC,is(24)));
+  }
   return g;
  })();
  // pools left on the flats: low, flat, mirror the sky
  const runnel=F(p.mul(vec2(.05,.006)),.05).mul(.75).add(F(p.mul(vec2(.2,.05)),1.7).mul(.25));
- const pool=smoothstep(.635,.655,runnel).mul(wet).mul(smoothstep(.985,.995,up));
+ const sandish=lc?is(1).add(is(14)).add(float(1).sub(known)):float(1);
+ const pool=smoothstep(.635,.655,runnel).mul(wet).mul(smoothstep(.985,.995,up)).mul(sandish);
  const clay=color('#a7a59e');
  // beyond the grass blades the dunes keep moving: gusts sweep a silver sheen across them
- const duneMask=float(1).sub(beach).mul(smoothstep(4.5,6,y)).mul(float(1).sub(smoothstep(40,90,y)));
+ const duneMask=lc?is(3).add(is(4).mul(.6)).add(is(8).mul(.45)).add(is(13).mul(.5)):float(1).sub(beach).mul(smoothstep(4.5,6,y)).mul(float(1).sub(smoothstep(40,90,y)));
  const sheen=gust(p).mul(duneMask);
  ground.colorNode=mix(clay,mix(mix(ground0,color('#cfcdb8'),sheen.mul(.22)).mul(mix(1,.55,wet.mul(.5))),color('#6f86a3'),pool.mul(.85)),U.tint);
- ground.roughnessNode=mix(float(.95),mix(mix(.95,.35,wet),.04,pool),U.tint);
- ground.envNode=sky(reflectVector).mul(mix(.12,mix(.12,.75,max(wet.mul(.25),pool)),U.tint));
+ const wetFlat=max(wet,is(14).mul(.55));   // estuary flats stay glossy long after the tide drops
+ground.roughnessNode=mix(float(.95),mix(mix(.95,.35,wetFlat),.04,pool),U.tint);
+ ground.envNode=sky(reflectVector).mul(mix(.12,mix(.12,.75,max(wetFlat.mul(.3),pool)),U.tint));
 
  // ---------- sea ----------
  const sea=new THREE.MeshBasicNodeMaterial({transparent:true,depthWrite:false});

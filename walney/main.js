@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import {createLook} from './look.js';
 import {createGrass} from './grass.js';
+import {loadLandcover} from './landcover.js';
 import {makeNoiseTexture} from '../src/noise.js?v=1.3.0';
 
 // Terrain blockout of a real place: LiDAR heights around a camera you place on
@@ -51,7 +52,8 @@ const haze=new THREE.Color('#a9c1db');
 scene.fog=new THREE.FogExp2(haze,0);
 
 // the look (sky, ground, sea) lives in look.js; U.tint switches clay ↔ colour
-const look=createLook({noiseTex:makeNoiseTexture(),far,tide:state.tide});
+const landcover=await loadLandcover(meta);
+const look=createLook({noiseTex:makeNoiseTexture(),far,tide:state.tide,landcover});
 const U=look.U;
 const ground=look.ground;
 const skyDome=new THREE.Mesh(new THREE.SphereGeometry(50000,48,24),look.skyMaterial);skyDome.frustumCulled=false;skyDome.renderOrder=-1;scene.add(skyDome);
@@ -72,13 +74,17 @@ geometry.setIndex(new THREE.BufferAttribute(index,1));
 const terrain=new THREE.Mesh(geometry,ground);terrain.frustumCulled=false;scene.add(terrain);
 let builtAt=null;
 
-// Where marram grows (stand-in until the OpenStreetMap land cover is wired in):
-// above the high-water line, back from the beach, on the low coastal ground.
+// What grows where. From the OpenStreetMap land cover when it is present:
+// marram on dunes, short grass on fields, marsh grass and rushes on the
+// saltmarsh, nothing on sand, tracks, roads, water or buildings. Returns
+// [probability, kind] with kind 0 marram, 1 field grass, 2 marsh.
+const GROWS={3:[1,0],8:[.55,1],4:[.8,2],13:[.6,2],6:[.35,1],7:[.4,1]};
 function zone(x,z){
- const h=height(x,z);if(h<4.6||h>45)return 0;
- if(look.hwDistAt(x,z)<12)return 0;
+ const h=height(x,z);
+ if(landcover){const g=GROWS[landcover.classAt(x,z)];if(!g||h<state.tide+.05)return [0,0];return g;}
+ if(h<4.6||h>45||look.hwDistAt(x,z)<12)return [0,0];
  const e=1.5,slope=Math.hypot(height(x+e,z)-h,height(x,z+e)-h)/e;
- return slope>1.1?0:h<6?.5:1;
+ return [slope>1.1?0:h<6?.5:1,0];
 }
 const grass=createGrass({look,height,zone});scene.add(grass.mesh);
 let grassAt=null;
@@ -141,7 +147,8 @@ renderer.domElement.addEventListener('pointerup',()=>aim=null);
 
 // ---------- top-down map ----------
 const mapCanvas=$('map'),ctx=mapCanvas.getContext('2d');
-const mapImg=new Image();mapImg.src='./data/map.jpg';await mapImg.decode();
+// an ImageBitmap decodes in a background tab too (Image.decode waits until the page is visible)
+const mapImg=await createImageBitmap(await (await fetch('./data/map.jpg')).blob());
 const M=meta.map,mapW=M.size[0]*M.res,mapH=M.size[1]*M.res;
 const mv={scale:0,cx:0,cz:0};   // metres per css pixel, view centre
 function fitMap(){const r=mapCanvas.getBoundingClientRect();mapCanvas.width=r.width*devicePixelRatio;mapCanvas.height=r.height*devicePixelRatio;if(!mv.scale){mv.scale=Math.max(mapW/r.width,mapH/r.height);mv.cx=M.west+mapW/2;mv.cz=M.north+mapH/2;}drawMap();}

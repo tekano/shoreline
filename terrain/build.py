@@ -147,6 +147,11 @@ def main():
         },
         'attribution': '© Environment Agency copyright and/or database right 2022. All rights reserved. Contains public sector information licensed under the Open Government Licence v3.0.'
     }
+    old = os.path.join(WEB, 'meta.json')
+    if os.path.exists(old):   # keep what landcover.py added
+        prev = json.load(open(old))
+        if 'landcover' in prev:
+            meta['landcover'] = prev['landcover']
     json.dump(meta, open(os.path.join(WEB, 'meta.json'), 'w'), indent=1)
     print('wrote', ', '.join(sorted(os.listdir(WEB))), '|', ', '.join(sorted(os.listdir(OUT))))
 

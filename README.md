@@ -65,6 +65,7 @@ Changes from the upstream code are commented where they happen. `src/look.js` an
 - **three.js** r185, MIT ([threejs.org](https://threejs.org)), vendored in `vendor/`.
 - **lil-gui** 0.20, MIT ([licence](vendor/lil-gui/LICENSE)): the look panel.
 - **Terrain** © Environment Agency copyright and/or database right 2022, [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
+- **Land cover** map data © OpenStreetMap contributors, [ODbL](https://opendatacommons.org/licenses/odbl/) (derived rasters in `walney/data/` share that licence).
 
 ## Licence
 

@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import {Fn,float,vec2,vec3,color,mix,smoothstep,max,pow,dot,normalize,cross,sin,cos,sqrt,clamp,varying,
+import {Fn,float,vec2,vec3,color,mix,smoothstep,max,pow,dot,normalize,cross,sin,cos,sqrt,clamp,varying,step,
  attribute,cameraPosition,instancedBufferAttribute,frontFacing,select,transformNormalToView} from 'three/tsl';
 
 // Marram grass that moves in the shared wind.
@@ -30,7 +30,7 @@ export function createGrass({look,height,zone}){
  const geometry=bladeGeometry();
  const root=new THREE.InstancedBufferAttribute(new Float32Array(MAX*4),4);    // x, y, z, yaw
  const shape=new THREE.InstancedBufferAttribute(new Float32Array(MAX*4),4);   // length, width, lean, phase
- const tone=new THREE.InstancedBufferAttribute(new Float32Array(MAX*4),4);    // dryness, stiffness, sheen, unused
+ const tone=new THREE.InstancedBufferAttribute(new Float32Array(MAX*4),4);    // dryness, stiffness, sheen, kind (0 marram, 1 field, 2 marsh)
  for(const a of [root,shape,tone])a.setUsage(THREE.DynamicDrawUsage);
  geometry.setAttribute('root',root);geometry.setAttribute('shape',shape);geometry.setAttribute('tone',tone);
  geometry.instanceCount=0;
@@ -69,6 +69,10 @@ export function createGrass({look,height,zone}){
   const green=mix(color('#4a5726'),color('#7a8440'),vT);
   const straw=mix(color('#7a7440'),color('#b9aa72'),pow(vT,1.4));
   const base=mix(green,straw,dry).toVar();
+  // field grass: fresher green; saltmarsh: dark sea-green grasses and rushes
+  const kind=vTone.w;
+  base.assign(mix(base,mix(mix(color('#4d6a2a'),color('#86a04a'),vT),color('#9d9a5a'),dry.mul(.5)),step(.5,kind).mul(step(kind,1.5))));
+  base.assign(mix(base,mix(mix(color('#33482a'),color('#5f7a45'),vT),color('#7c7a4c'),dry.mul(.4)),step(1.5,kind)));
   // rolled marram leaves flash silver-grey when a gust lays them over
   base.assign(mix(base,color('#a9a898'),vG.mul(vTone.z).mul(smoothstep(.2,.9,vT)).mul(.3)));
   return base.mul(mix(.55,1,smoothstep(0,.5,vT)));      // darker down in the clump
@@ -93,16 +97,16 @@ export function createGrass({look,height,zone}){
  for(let i=0;i<=N;i++)cdf[i]/=cdf[N];
  const sampleR=u=>{let lo=0,hi=N;while(hi-lo>1){const m=(lo+hi)>>1;if(cdf[m]<u)lo=m;else hi=m;}return (lo+(u-cdf[lo])/Math.max(cdf[hi]-cdf[lo],1e-9))/N*RADIUS;};
  let count=0;
- const put=(x,z,yaw,len,wid,lean,phase,dry,stiff,sheen)=>{
+ const put=(x,z,yaw,len,wid,lean,phase,dry,stiff,sheen,kind=0)=>{
   if(count>=MAX)return;const k=count*4,y=height(x,z);
-  root.array.set([x,y-.02,z,yaw],k);shape.array.set([len,wid,lean,phase],k);tone.array.set([dry,stiff,sheen,0],k);count++;
+  root.array.set([x,y-.02,z,yaw],k);shape.array.set([len,wid,lean,phase],k);tone.array.set([dry,stiff,sheen,kind],k);count++;
  };
  function update(cx,cz,density=1){
   seed=(Math.round(cx*7.1)^Math.round(cz*3.3))>>>0||1;count=0;
   // hero tussocks: fountains of long arching leaves near the camera
   for(let n=0;n<TUSSOCKS*density;n++){
    const a=rnd()*Math.PI*2,r=1.6+Math.pow(rnd(),.8)*16,x=cx+Math.sin(a)*r,z=cz+Math.cos(a)*r;
-   const kind=zone(x,z);if(kind<.5)continue;
+   const [p0,k0]=zone(x,z);if(p0<.5||k0!==0)continue;
    const size=.75+rnd()*.55,dry=.2+rnd()*.45;
    for(let b=0;b<PER_TUSSOCK;b++){
     const ya=rnd()*Math.PI*2,rr=Math.sqrt(rnd())*.22*size;
@@ -117,11 +121,13 @@ export function createGrass({look,height,zone}){
   while(placed<field&&tries<field*3){
    tries++;
    const r=sampleR(rnd()),a=rnd()*Math.PI*2,x=cx+Math.sin(a)*r,z=cz+Math.cos(a)*r;
-   const kind=zone(x,z);if(kind<=0||rnd()>kind)continue;
+   const [p0,kind]=zone(x,z);if(p0<=0||rnd()>p0)continue;
+   // field grass is shorter and finer; marsh grass mid-height
+   const lenK=kind===1?.55:kind===2?.75:1;
    const k=scale(r),clump=r<45?6+Math.floor(rnd()*14):1;
    for(let c=0;c<clump&&placed<field;c++,placed++){
     const ya=rnd()*Math.PI*2,rr=clump>1?Math.sqrt(rnd())*.2*k:0;
-    put(x+Math.sin(ya)*rr,z+Math.cos(ya)*rr,ya,(.35+rnd()*.45)*Math.min(k,2.2),(.012+rnd()*.008)*k,.3+rnd()*.9,rnd(),.15+rnd()*.55,.9+rnd()*.5,.5+rnd()*.5);
+    put(x+Math.sin(ya)*rr,z+Math.cos(ya)*rr,ya,(.35+rnd()*.45)*Math.min(k,2.2)*lenK,(.012+rnd()*.008)*k,.3+rnd()*.9,rnd(),.15+rnd()*.55,.9+rnd()*.5,.5+rnd()*.5,kind);
    }
   }
   geometry.instanceCount=count;

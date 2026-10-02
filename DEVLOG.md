@@ -1,5 +1,23 @@
 # Devlog
 
+## 005: What the ground actually is (2026-10-02)
+
+LiDAR gives the *shape* of the ground: the gravel road is a flat ribbon, the saltmarsh a flat shelf. It can't say what any of it *is*. OpenStreetMap can.
+
+The public query servers were overloaded all day, so `terrain/landcover.py` reads Geofabrik's Cumbria extract (45 MB, one file) with pyosmium. It projects every polygon and line onto the LiDAR grids and rasterises 4 m and 16 m class maps:
+- **Coast:** sand, shingle, dune, saltmarsh, tidal flat.
+- **Land:** fields, scrub, heath, woods, water, built-up areas.
+- **On top:** roads, gravel tracks, paths and buildings.
+
+It also writes building footprints, about 10,000 fence lines and the 20 Haverigg/Walney wind turbines for cards and props.
+
+The ground shader paints each class with colours **sampled from my pano**, not picked by eye: grey-olive marsh (median `#545b44`), straw-olive marram (`#807a46`), wet silver-grey estuary flats (`#969da4`). Class edges are jittered by a few metres of noise so they don't read as 4 m pixels. Grass now grows by class: marram on the dunes, shorter fresher grass on fields, dark marsh grass on the saltmarsh, and nothing on sand, tracks or roofs.
+
+**Also fixed:**
+- **Horizon boxes:** the "things in the distance" were the low cloud layer breaking up where its projection blows up near the horizon. It now fades out before it gets there.
+- **Background tabs:** the page wouldn't start in a background tab, because `Image.decode()` waits for visibility. It uses `createImageBitmap` now.
+
+
 ## 004: Wind and marram (2026-10-02)
 
 **One wind for everything.** `gust()` in `walney/look.js` is a field of ~80 m gusts rolling downwind a little slower than the wind, over finer flurries.

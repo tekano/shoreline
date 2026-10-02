@@ -132,5 +132,29 @@
    "mm": 35
   }
  },
- "attribution": "\u00a9 Environment Agency copyright and/or database right 2022. All rights reserved. Contains public sector information licensed under the Open Government Licence v3.0."
+ "attribution": "\u00a9 Environment Agency copyright and/or database right 2022. All rights reserved. Contains public sector information licensed under the Open Government Licence v3.0.",
+ "landcover": {
+  "classes": {
+   "unknown": 0,
+   "sand": 1,
+   "shingle": 2,
+   "dune": 3,
+   "saltmarsh": 4,
+   "mud": 5,
+   "scrub": 6,
+   "heath": 7,
+   "grass": 8,
+   "wood": 9,
+   "water": 10,
+   "built": 11,
+   "rock": 12,
+   "wetland": 13,
+   "flat": 14,
+   "road": 20,
+   "track": 21,
+   "path": 22,
+   "building": 24
+  },
+  "attribution": "\u00a9 OpenStreetMap contributors (ODbL)"
+ }
 }
