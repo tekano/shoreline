@@ -47,26 +47,37 @@ def mosaic():
     return z, E0, N1
 
 
+def push_pull(z):
+    """Fill holes smoothly: average down a pyramid until nothing is missing,
+    then pull estimates back up, keeping every surveyed value."""
+    vals, wts = [np.nan_to_num(z)], [(~np.isnan(z)).astype(np.float32)]
+    while (wts[-1] == 0).any() and min(vals[-1].shape) > 2:
+        a, w = vals[-1], wts[-1]
+        h, wd = a.shape[0] // 2 * 2, a.shape[1] // 2 * 2
+        a, w = a[:h, :wd] * w[:h, :wd], w[:h, :wd]
+        A = a.reshape(h // 2, 2, wd // 2, 2).sum(axis=(1, 3)); W = w.reshape(h // 2, 2, wd // 2, 2).sum(axis=(1, 3))
+        vals.append(np.where(W > 0, A / np.maximum(W, 1e-6), 0)); wts.append(np.minimum(W, 1))
+    est = vals[-1]
+    for a, w in zip(reversed(vals[:-1]), reversed(wts[:-1])):
+        up = ndimage.zoom(est, (a.shape[0] / est.shape[0], a.shape[1] / est.shape[1]), order=1)
+        up = np.pad(up, ((0, a.shape[0] - up.shape[0]), (0, a.shape[1] - up.shape[1])), mode='edge')
+        est = w * a + (1 - w) * up
+    return est.astype(np.float32)
+
+
 def fill_sea(z):
-    """LiDAR stops at the low-water edge. Below it, extend the nearest surveyed
-    height and slope it down offshore, then soften the join."""
+    """LiDAR stops near the low-water edge, and some flats were never surveyed.
+    Fill the gaps smoothly from the surrounding survey, then let open water
+    deepen with distance from any surveyed ground."""
     missing = np.isnan(z)
     if not missing.any():
         return z
-    small = z[::4, ::4]
-    dist, (ri, ci) = ndimage.distance_transform_edt(np.isnan(small), return_indices=True)
-    near = small[ri, ci]
-    coastal = near < 4.0
-    seabed = near - np.where(coastal, np.minimum(dist * 4 * RES * 0.008, 25.0), 0.0)
-    seabed = ndimage.gaussian_filter(seabed, 6)
-    full = np.kron(seabed, np.ones((4, 4), np.float32))[:z.shape[0], :z.shape[1]]
-    out = np.where(missing, full, z).astype(np.float32)
-    # blend a few cells across the seam so the survey edge is not a cliff
-    edge = ndimage.distance_transform_edt(missing) if missing.mean() < 0.9 else None
-    if edge is not None:
-        w = np.clip(edge / 20.0, 0, 1)
-        out = np.where(missing, w * full + (1 - w) * ndimage.uniform_filter(np.nan_to_num(out), 9), out)
-    return out
+    base = push_pull(z)
+    dist = ndimage.distance_transform_edt(missing[::4, ::4]) * 4 * RES
+    dist = ndimage.zoom(dist, (z.shape[0] / dist.shape[0], z.shape[1] / dist.shape[1]), order=1)
+    dist = np.pad(dist, ((0, z.shape[0] - dist.shape[0]), (0, z.shape[1] - dist.shape[1])), mode='edge')
+    deepen = np.where(base < 4.0, np.minimum(np.maximum(dist - 150, 0) * 0.008, 25.0), 0.0)
+    return np.where(missing, base - deepen, z).astype(np.float32)
 
 
 def block_mean(a, k):
@@ -127,6 +138,8 @@ def main():
         'map': {'res': 8, 'size': [m.shape[1], m.shape[0]], 'west': E0 - ORIGIN[0], 'north': -(N1 - ORIGIN[1])},
         'cameras': {
             'streetview': {'label': 'North Walney (Street View)', 'pos': local(*sv), 'heading': 314.4, 'pitch': 1.0, 'eye': 1.7, 'fov': 60},
+            'westshore': {'label': 'West Shore, photo match (toward Black Combe)', 'pos': local(*sv), 'heading': 333, 'pitch': 3, 'eye': 1.6, 'mm': 26, 'tide': -1.5, 'sunaz': 195, 'sunel': 52},
+            'westshore_high': {'label': 'West Shore, raised three-quarter view', 'pos': [-250.0, 400.0], 'heading': 343, 'pitch': -11, 'eye': 70, 'mm': 24, 'tide': -1.5, 'sunaz': 195, 'sunel': 52},
             'sandscale': {'label': 'Sandscale Haws dune ridge, toward Black Combe', 'pos': [2235.0, -5459.0], 'heading': 330.5, 'pitch': 0.5, 'eye': 1.7, 'mm': 35},
         },
         'attribution': '© Environment Agency copyright and/or database right 2022. All rights reserved. Contains public sector information licensed under the Open Government Licence v3.0.'

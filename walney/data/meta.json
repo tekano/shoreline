@@ -47,6 +47,34 @@
    "eye": 1.7,
    "fov": 60
   },
+  "westshore": {
+   "label": "West Shore, photo match (toward Black Combe)",
+   "pos": [
+    39.0,
+    24.2
+   ],
+   "heading": 333,
+   "pitch": 3,
+   "eye": 1.6,
+   "mm": 26,
+   "tide": -1.5,
+   "sunaz": 195,
+   "sunel": 52
+  },
+  "westshore_high": {
+   "label": "West Shore, raised three-quarter view",
+   "pos": [
+    -250.0,
+    400.0
+   ],
+   "heading": 343,
+   "pitch": -11,
+   "eye": 70,
+   "mm": 24,
+   "tide": -1.5,
+   "sunaz": 195,
+   "sunel": 52
+  },
   "sandscale": {
    "label": "Sandscale Haws dune ridge, toward Black Combe",
    "pos": [

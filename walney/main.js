@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
-import {color,float,mix,smoothstep,positionWorld,normalWorld,uniform,max,abs,sin,fract} from 'three/tsl';
+import {createLook} from './look.js';
+import {makeNoiseTexture} from '../src/noise.js?v=1.3.0';
 
 // Terrain blockout of a real place: LiDAR heights around a camera you place on
 // a top-down map. Scene frame: metres, x east, y up (m above Ordnance Datum
@@ -28,7 +29,7 @@ const nearEdge=(x,z)=>{const e=Math.min(x-near.west,near.west+near.w*near.res-x,
 const height=(x,z)=>{const w=nearEdge(x,z);return w>0?sample(near,x,z)*w+sample(far,x,z)*(1-w):sample(far,x,z);};
 
 // ---------- view state ----------
-const DEFAULT={...meta.cameras.streetview,tide:.3,haze:1,sunaz:230,sunel:28,tint:1};
+const DEFAULT={...meta.cameras.westshore,tide:-1.5,haze:1,sunaz:195,sunel:52,tint:1};
 const saved=read();
 const presets={...meta.cameras,...saved};
 const state={...DEFAULT,...(saved.__last||{})};
@@ -39,30 +40,23 @@ const view=$('view');
 const renderer=new THREE.WebGPURenderer({antialias:true,forceWebGL:new URLSearchParams(location.search).has('webgl')});
 await renderer.init();
 renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
-renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMapping=THREE.NeutralToneMapping;
 view.prepend(renderer.domElement);$('status').remove();
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(40,1,.3,60000);
 const sun=new THREE.DirectionalLight('#fff4e2',3.0);scene.add(sun,sun.target);
-const hemi=new THREE.HemisphereLight('#bcd3e6','#6f6a5c',1.1);scene.add(hemi);
-const sky=new THREE.Color('#b9cbd6');
-scene.background=sky;scene.fog=new THREE.FogExp2(sky,0);
+const hemi=new THREE.HemisphereLight('#a9c4ea','#7a6f5c',1.1);scene.add(hemi);
+const haze=new THREE.Color('#a9c1db');
+scene.fog=new THREE.FogExp2(haze,0);
 
-// terrain material: clay, or a tint by height and slope to read the layers
-const U={tint:uniform(1),tide:uniform(.3)};
-const ground=new THREE.MeshStandardNodeMaterial({roughness:.95});
-const y=positionWorld.y,up=normalWorld.y;
-const clay=color('#a7a59e');
-const wetSand=color('#8a7c66'),drySand=color('#d8c8a4'),grass=color('#8f9468'),rock=color('#77736b'),fell=color('#6f7a5c');
-let tinted=mix(wetSand,drySand,smoothstep(U.tide.add(.2),U.tide.add(1.5),y));
-tinted=mix(tinted,grass,smoothstep(5.5,9,y).mul(smoothstep(.8,.95,up)));
-tinted=mix(tinted,fell,smoothstep(60,160,y));
-tinted=mix(tinted,rock,smoothstep(.82,.7,up));
-// 10 m contour lines help judge heights in clay mode
-const contour=smoothstep(.04,0,abs(fract(y.div(10)).sub(.5)).sub(.46)).mul(.12);
-ground.colorNode=mix(clay.mul(float(1).sub(contour)),tinted,U.tint);
-const water=new THREE.Mesh(new THREE.PlaneGeometry(200000,200000).rotateX(-Math.PI/2),new THREE.MeshStandardNodeMaterial({color:'#6a8794',roughness:.12,metalness:0,transparent:true,opacity:.88}));
+// the look (sky, ground, sea) lives in look.js; U.tint switches clay ↔ colour
+const look=createLook({noiseTex:makeNoiseTexture(),far,tide:state.tide});
+const U=look.U;
+const ground=look.ground;
+const skyDome=new THREE.Mesh(new THREE.SphereGeometry(50000,48,24),look.skyMaterial);skyDome.frustumCulled=false;skyDome.renderOrder=-1;scene.add(skyDome);
+const water=new THREE.Mesh(new THREE.PlaneGeometry(200000,200000).rotateX(-Math.PI/2),look.sea);water.renderOrder=2;
 scene.add(water);
+let seaTide=state.tide,seaTimer=0;
 
 // Camera-centred grid: about 1.5 m apart at the camera, ~100 m at Black Combe.
 const N=1024,R=24000,A=.032;
@@ -92,10 +86,13 @@ function apply(){
  camera.position.set(x,camY,z);
  camera.rotation.set(state.pitch*Math.PI/180,-state.heading*Math.PI/180,0,'YXZ');
  camera.fov=mm2fov(state.mm??fovToMm(state.fov));camera.updateProjectionMatrix();
- water.position.y=state.tide;U.tide.value=state.tide;U.tint.value=+state.tint;
- scene.fog.density=state.haze*0.000075;
+ water.position.y=state.tide;U.tide.value=state.tide;U.tint.value=+state.tint;skyDome.position.copy(camera.position);
+ // the waterline field is rebuilt after the tide slider settles
+ if(state.tide!==seaTide){clearTimeout(seaTimer);seaTimer=setTimeout(()=>{look.updateSea(state.tide);seaTide=state.tide;},120);}
+ scene.fog.density=state.haze*0.00006;
  const az=state.sunaz*Math.PI/180,el=state.sunel*Math.PI/180;
  sun.position.set(x+Math.sin(az)*Math.cos(el)*5000,camY+Math.sin(el)*5000,z-Math.cos(az)*Math.cos(el)*5000);sun.target.position.set(x,camY,z);
+ U.sun.value.set(Math.sin(az)*Math.cos(el),Math.sin(el),-Math.cos(az)*Math.cos(el));
  for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel'])$(k).value=state[k];
  $('fov').value=state.mm??fovToMm(state.fov);$('tint').value=state.tint;
  $('eye-v').textContent=state.eye.toFixed(1);$('heading-v').textContent=state.heading.toFixed(1);$('pitch-v').textContent=state.pitch.toFixed(1);
@@ -121,10 +118,10 @@ $('copy').onclick=()=>navigator.clipboard?.writeText(JSON.stringify(cameraJSON()
 $('download').onclick=()=>{const all=read();delete all.__last;const data={frame:meta.units,origin_osgb:meta.origin_osgb,current:cameraJSON(),saved:all};const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,1)],{type:'application/json'}));a.download='walney-cameras.json';a.click();URL.revokeObjectURL(a.href);};
 
 // look around by dragging the 3D view
-let look=null;
-renderer.domElement.addEventListener('pointerdown',e=>{look={x:e.clientX,y:e.clientY,h:state.heading,p:state.pitch};renderer.domElement.setPointerCapture(e.pointerId);});
-renderer.domElement.addEventListener('pointermove',e=>{if(!look)return;const k=(camera.fov/renderer.domElement.clientHeight);state.heading=((look.h-(e.clientX-look.x)*k)%360+360)%360;state.pitch=Math.max(-45,Math.min(30,look.p+(e.clientY-look.y)*k));apply();});
-renderer.domElement.addEventListener('pointerup',()=>look=null);
+let aim=null;
+renderer.domElement.addEventListener('pointerdown',e=>{aim={x:e.clientX,y:e.clientY,h:state.heading,p:state.pitch};renderer.domElement.setPointerCapture(e.pointerId);});
+renderer.domElement.addEventListener('pointermove',e=>{if(!aim)return;const k=(camera.fov/renderer.domElement.clientHeight);state.heading=((aim.h-(e.clientX-aim.x)*k)%360+360)%360;state.pitch=Math.max(-45,Math.min(30,aim.p+(e.clientY-aim.y)*k));apply();});
+renderer.domElement.addEventListener('pointerup',()=>aim=null);
 
 // ---------- top-down map ----------
 const mapCanvas=$('map'),ctx=mapCanvas.getContext('2d');
@@ -167,5 +164,7 @@ $('credit').textContent=meta.attribution;
 function resize(){const r=view.getBoundingClientRect();if(!r.width||!r.height)return;renderer.setSize(r.width,r.height,false);camera.aspect=r.width/r.height;camera.updateProjectionMatrix();fitMap();}
 new ResizeObserver(resize).observe(view);new ResizeObserver(fitMap).observe(mapCanvas);
 resize();apply();
-renderer.setAnimationLoop(()=>{const r=view.getBoundingClientRect();if(r.width&&r.height)renderer.render(scene,camera);});
-window.walney={state,apply,height,meta};
+renderer.setAnimationLoop(t=>{U.time.value=t/1000;const r=view.getBoundingClientRect();if(r.width&&r.height)renderer.render(scene,camera);});
+// dev: render one frame and save it through tools/serve.py (captures/, git-ignored)
+async function capture(name='walney.png'){renderer.render(scene,camera);const blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/png'));await fetch(`/__capture?name=${encodeURIComponent(name)}`,{method:'POST',body:blob});return name;}
+window.walney={state,apply,height,meta,capture};

@@ -1,5 +1,27 @@
 # Devlog
 
+## 003: Matching photos of the place (2026-10-02)
+
+First look pass on the Walney blockout, matched against my own photos: a summer West Shore shot toward Black Combe, and a 360° pano from a dune top at Sandscale Haws. The pano's GPS puts the camera on the LiDAR, and Black Combe and the dune skyline line up to within a few degrees.
+
+- **Sky:** deep zenith blue, a pale cyan horizon, high cirrus combed out along the wind, and a broken low cloud bank on the horizon.
+- **Haze:** light and blue. It turns Black Combe slate at 15 km, as in the photos.
+- **Ground** (the zones come from the real distance inland of the high-water line):
+  - beach: wet brown-pink flats with sky-mirror runnels, then dry sand and shingle;
+  - dunes: olive-straw marram, greener slacks, the odd blowout;
+  - inland: pasture, then fell, then heather.
+- **Sea:**
+  - colour: sandy-green over the flats, teal, then deep blue-grey offshore;
+  - breakers: lines run in along the distance from the real waterline, recomputed whenever the tide moves. They steepen and break in the shallows, only in stretches, with lumpy foam fronts and patchy trailing foam;
+  - open water: wind chop and whitecaps only where there is fetch, so the estuary stays sheltered;
+  - shoreline: water thickness is read per pixel from the depth buffer, so the waterline follows the 4 m terrain with a foam fringe.
+- **Terrain build:** the sea fill now uses push-pull inpainting. Unsurveyed flats are interpolated smoothly instead of copied blockwise.
+
+**Learned:** a raised three-quarter view (60–100 m up) shows every stage of the water at once: open chop, breaker lines, swash, wet flats, the shingle and dunes. It never needs a close-up hero wave, which matches what makes the Point Lookout scene work.
+
+**Next:** real detail where the camera is close. Cobbles and the boulder armour along the sea defences, marram grass that moves in one shared wind, and photo cards for distant buildings and turbines.
+
+
 ## 002: A real place (2026-10-02)
 
 Leon Lin's (@LexnLin) Point Lookout scene showed what actually sells a coastline. It isn't the water alone:
