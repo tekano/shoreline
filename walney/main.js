@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import {pass,uniform,vec3,vec4,float,dot,mix,pow,max,renderOutput} from 'three/tsl';
 import {createLook,sunLightingFor} from './look.js';
 import {createGrass} from './grass.js';
 import {loadLandcover} from './landcover.js';
@@ -38,7 +39,7 @@ const height=(x,z)=>{const w=nearEdge(x,z);return w>0?sample(near,x,z)*w+sample(
 const DEFAULT={...meta.cameras.westshore,tide:-1.5,haze:1,sunaz:195,sunel:52,tint:1};
 const saved=read();
 const presets={...meta.cameras,...saved};
-const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,exposure:1,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,...DEFAULT,...(saved.__last||{})};
+const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,exposure:1,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1.3,saturation:1,blacks:.008,...DEFAULT,...(saved.__last||{})};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
 
 // ---------- renderer ----------
@@ -49,7 +50,28 @@ renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
 renderer.toneMapping=THREE.NeutralToneMapping;   // rolls off the HDR sky and sun while keeping hue and saturation
 view.prepend(renderer.domElement);$('status').remove();
 const scene=new THREE.Scene();
+// Grade in HDR before tone mapping: contrast around mid-grey, saturation, a black level.
+// The pano reference is drawn afterwards in its own scene, so the comparison stays untouched.
+const G={contrast:uniform(1.3),saturation:uniform(1),blacks:uniform(.008)};
+const overlay=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(40,1,.3,60000);
+const scenePass=pass(scene,camera);
+const graded=(()=>{
+ const c=max(scenePass.rgb.sub(G.blacks),0);
+ const lum=dot(c,vec3(.2126,.7152,.0722));
+ const sat=mix(vec3(lum),c,G.saturation);
+ return vec4(pow(max(sat,1e-5).div(.18),vec3(G.contrast)).mul(.18),1);
+})();
+// the pano is composited after tone mapping, straight from the photo
+renderer.setClearAlpha(0);
+const overlayPass=pass(overlay,camera);
+const panoA=overlayPass.a;
+const panoRGB=renderOutput(vec4(overlayPass.rgb.div(max(panoA,1e-4)),1),THREE.NoToneMapping,THREE.SRGBColorSpace).rgb;
+const pipeline=new THREE.RenderPipeline(renderer,vec4(mix(renderOutput(graded).rgb,panoRGB,panoA),1));
+pipeline.outputColorTransform=false;
+const draw=()=>pipeline.render();
+// passes re-render once per animation frame; a capture from a paused (hidden) tab needs a new frame id
+const drawNow=()=>{renderer._nodes.nodeFrame.update();draw();};
 const sun=new THREE.DirectionalLight('#fff4e2',3.0);scene.add(sun,sun.target);
 const hemi=new THREE.HemisphereLight('#a9c4ea','#7a6f5c',1.1);scene.add(hemi);
 const haze=new THREE.Color('#a9c1db');
@@ -99,7 +121,7 @@ const structures=createStructures({features,height,look});scene.add(structures.g
 // reference pano overlay (local only: the photo is private and not in the repo)
 const pano=await createPanoRef('sandscale');
 if(pano){
- scene.add(pano.mesh);pano.mesh.visible=false;$('pano-rows').hidden=false;
+ overlay.add(pano.mesh);pano.mesh.visible=false;$('pano-rows').hidden=false;
  const sync=()=>{const m=$('pano-mode').value;pano.mesh.visible=m!=='off';pano.U.mode.value=m==='wipe'?1:0;
   pano.U.amount.value=+$('pano-amount').value;pano.U.yaw.value=+$('pano-yaw').value;pano.U.pitch.value=+$('pano-pitch').value;
   $('pano-amount-v').textContent=(+$('pano-amount').value).toFixed(2);$('pano-yaw-v').textContent=(+$('pano-yaw').value).toFixed(2);$('pano-pitch-v').textContent=(+$('pano-pitch').value).toFixed(2);};
@@ -138,8 +160,10 @@ function apply(){
  const amb=zen.map((z,i)=>z*(1-ov)+grey[i]*ov),zm=Math.max(...amb,1e-4),direct=1-.88*ov;
  U.sunLight.value.set(T[0]*3.4*direct,T[1]*3.4*direct,T[2]*3.4*direct);U.skyAmb.value.set(...amb);U.overcast.value=ov;U.waveScale.value=state.waveScale;
  sun.color.setRGB(T[0]/tm,T[1]/tm,T[2]/tm);sun.intensity=3.4*tm*direct;
- hemi.color.setRGB(amb[0]/zm,amb[1]/zm,amb[2]/zm);hemi.intensity=(Math.min(1.3,zm/.29*1.1)+.03)*(1+ov*.9);
- for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','exposure','wind','overcast','day','time','waveScale'])$(k).value=state[k];
+ hemi.color.setRGB(amb[0]/zm,amb[1]/zm,amb[2]/zm);hemi.intensity=(Math.min(.75,zm/.29*.62)+.02)*(1+ov*.25);   // sun-led light: modest fill, darker overcast days
+ G.contrast.value=state.contrast;G.saturation.value=state.saturation;G.blacks.value=state.blacks;
+ for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','exposure','wind','overcast','day','time','waveScale','contrast','saturation','blacks'])$(k).value=state[k];
+ $('contrast-v').textContent=state.contrast.toFixed(2);$('saturation-v').textContent=state.saturation.toFixed(2);$('blacks-v').textContent=state.blacks.toFixed(3);
  $('waveScale-v').textContent=state.waveScale.toFixed(2);
  const md=new Date(Date.UTC(2026,0,state.day));$('day-v').textContent=md.toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
  $('time-v').textContent=`${String(Math.floor(state.time)).padStart(2,'0')}:${String(Math.round(state.time%1*60)%60).padStart(2,'0')}`;
@@ -167,14 +191,14 @@ $('fov').oninput=e=>{state.mm=+e.target.value;apply();};
 $('tint').onchange=e=>{state.tint=+e.target.value;apply();};
 // the clock moves the sun along its real path for Walney
 for(const k of ['day','time'])$(k).oninput=e=>{state[k]=+e.target.value;const sk=skyAt(2026,state.day,state.time);state.sunaz=Math.round(sk.sunAz);state.sunel=Math.round(sk.sunEl*4)/4;apply();};
-for(const k of ['panDeg','panSecs','clouds','swell','exposure','wind','overcast','waveScale'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
+for(const k of ['panDeg','panSecs','clouds','swell','exposure','wind','overcast','waveScale','contrast','saturation','blacks'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
 $('motion').onchange=e=>{state.motion=e.target.value;panStart=performance.now()/1000;apply();};
 function fillPresets(){const all={...meta.cameras,...read()};delete all.__last;$('preset').innerHTML='<option value="">Choose a view…</option>'+Object.entries(all).map(([k,v])=>`<option value="${k}">${v.label||k}</option>`).join('');}
 fillPresets();
 $('preset').onchange=e=>{const all={...meta.cameras,...read()};const p=all[e.target.value];if(p){Object.assign(state,p);if(p.fov&&!p.mm)state.mm=fovToMm(p.fov);apply();}};
 const cameraJSON=()=>{const [x,z]=state.pos,groundY=height(x,z);return {label:state.label,pos:[+x.toFixed(1),+z.toFixed(1)],osgb:[+(meta.origin_osgb[0]+x).toFixed(1),+(meta.origin_osgb[1]-z).toFixed(1)],eye:state.eye,eyeHeightODN:+(Math.max(groundY,state.tide)+state.eye).toFixed(2),heading:state.heading,pitch:state.pitch,mm:state.mm??fovToMm(state.fov),verticalFov:+mm2fov(state.mm??fovToMm(state.fov)).toFixed(2),tide:state.tide,sunaz:state.sunaz,sunel:state.sunel,haze:state.haze};};
 // save the current frame as a PNG (overlay included) to draw on
-$('shot').onclick=()=>{pano?.follow(camera);renderer.render(scene,camera);renderer.domElement.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`walney-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.png`;a.click();URL.revokeObjectURL(a.href);},'image/png');};
+$('shot').onclick=()=>{pano?.follow(camera);drawNow();renderer.domElement.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`walney-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.png`;a.click();URL.revokeObjectURL(a.href);},'image/png');};
 $('save').onclick=()=>{const name=prompt('Name this view','My view');if(!name)return;const all=read();all[name.replace(/\W+/g,'_')]={...cameraJSON(),label:name};write(all);fillPresets();};
 $('copy').onclick=()=>navigator.clipboard?.writeText(JSON.stringify(cameraJSON(),null,1));
 $('download').onclick=()=>{const all=read();delete all.__last;const data={frame:meta.units,origin_osgb:meta.origin_osgb,current:cameraJSON(),saved:all};const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,1)],{type:'application/json'}));a.download='walney-cameras.json';a.click();URL.revokeObjectURL(a.href);};
@@ -238,7 +262,7 @@ function panHeading(now){
 }
 let lastT=0;
 renderer.setAnimationLoop(t=>{const dt=Math.min(.1,(t-lastT)/1000);lastT=t;pano?.follow(camera);U.time.value=t/1000;structures.update(dt,U.wind.value,U.windSpeed.value);
- if(state.motion!=='locked'&&!aim)camera.rotation.set(state.pitch*Math.PI/180,-panHeading(t/1000)*Math.PI/180,0,'YXZ');const r=view.getBoundingClientRect();if(r.width&&r.height)renderer.render(scene,camera);});
+ if(state.motion!=='locked'&&!aim)camera.rotation.set(state.pitch*Math.PI/180,-panHeading(t/1000)*Math.PI/180,0,'YXZ');const r=view.getBoundingClientRect();if(r.width&&r.height)draw();});
 // dev: render one frame and save it through tools/serve.py (captures/, git-ignored)
-async function capture(name='walney.png'){pano?.follow(camera);renderer.render(scene,camera);const blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/png'));await fetch(`/__capture?name=${encodeURIComponent(name)}`,{method:'POST',body:blob});return name;}
+async function capture(name='walney.png'){pano?.follow(camera);drawNow();const blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/png'));await fetch(`/__capture?name=${encodeURIComponent(name)}`,{method:'POST',body:blob});return name;}
 window.walney={state,apply,height,meta,capture,grass,look,scene,water,terrain,structures,pano};

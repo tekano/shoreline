@@ -187,7 +187,7 @@ export function createSea({look}){
    body.assign(mix(body,color('#264b5e'),smoothstep(5,14,depth)));
    // under an overcast deck the Irish Sea goes slate: grey-green, little blue left
    body.assign(mix(body,mix(color('#6b6f66'),color('#4b5655'),smoothstep(.5,5,depth)),U.overcast.mul(.75)));
-   body.mulAssign(U.sunLight.mul(max(U.sun.y,0)).mul(shadeS).mul(.32).add(U.skyAmb.mul(.9)));
+   body.mulAssign(U.sunLight.mul(max(U.sun.y,0)).mul(shadeS).mul(.32).add(U.skyAmb.mul(.6)));
    // light through the thin upper part of a wave: the sea's colour glowing in the crests
    const back=pow(max(dot(eye.negate(),normalize(vec3(U.sun.x,0,U.sun.z))),0),2).mul(.6).add(.4);
    body.addAssign(color('#2f8c7c').mul(U.sunLight).mul(max(U.sun.y,.05)).mul(smoothstep(.2,.9,crest)).mul(back).mul(shadeS).mul(.35).mul(smoothstep(.5,3,depth)));

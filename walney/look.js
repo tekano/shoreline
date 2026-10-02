@@ -327,7 +327,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  ground.colorNode=mix(clay,mix(mix(ground0.mul(ripTone),color('#cfcdb8'),sheen.mul(.22)).mul(mix(1,.62,wet.mul(.5))),color('#55657a'),pool.mul(.6)),U.tint).mul(shade);
  const wetFlat=max(max(wet,is(14).mul(float(1).sub(exposed)).mul(.55)),mirror);    // estuary flats stay glossy long after the tide drops
  ground.roughnessNode=mix(float(.95),mix(mix(mix(.95,.35,wetFlat),.12,mirror),.04,pool),U.tint);
- ground.envNode=sky(vec3(0,1,0)).mul(.18);                                     // soft skylight, no tint from reflections
+ ground.envNode=sky(vec3(0,1,0)).mul(.1);                                     // soft skylight, no tint from reflections
  const eyeG=normalize(cameraPosition.sub(positionWorld));
  const fresG=float(.02).add(pow(float(1).sub(max(dot(normalWorld,eyeG),0)),5).mul(.98));
  const gloss=max(max(wetFlat.mul(.35),pool),mirror.mul(.85));
