@@ -1,5 +1,34 @@
 # Devlog
 
+## 007: Atmosphere, volumetric cumulus, sun on the sea (2026-10-02)
+
+**Sky.** It's an approximate single-scattering atmosphere, not a full simulation:
+- sunlight is reddened by the air it crosses (Kasten–Young air mass), then scattered toward the eye by molecules (blue, even) and haze (white, bunched round the sun);
+- looking up, you see light that crossed less air, so a sunset stays blue-teal overhead and turns peach and orange toward the sun.
+
+All values are HDR, rolled off by the tone mapper. A CPU twin of the same maths colours the scene's sun and skylight at any sun height, so the ground and grass go golden at sunset too.
+
+**Aerial perspective.** The fog is a node now:
+- haze thickens toward sea level (1.2 km scale height);
+- each distant pixel takes the sky's colour in its own direction, warm toward a low sun and blue away from it;
+- the haze slider has a much longer range.
+
+**Volumetric cumulus.** A 16-step ray-march through a 1.4–2.7 km slab:
+- **Shape:** smooth noise gives the large shapes, and Worley (cellular) noise eats the edges into cauliflower billows.
+- **Light:** a light sample toward the sun gives self-shadowing; forward scattering gives silver edges toward the sun; a powder term darkens the cores; skylight is cooler at the base.
+- **Domes:** tops need ever more coverage, so the clouds are domed rather than flat-lidded.
+- **Sampling:** interleaved gradient noise jitters the march without streaks.
+- **Cheap twin:** reflections, cloud shadows and skylight use a flat version of the same field, so shadows and reflections match the clouds you see.
+
+**Sun on the sea:**
+- **Glitter:** a Beckmann distribution of tiny facets makes a glitter path that widens as wind and open water roughen the surface.
+- **Body colour:** lit by the real sun colour, the skylight and cloud shadow.
+
+New sliders: Exposure, Cumulus and Swell; the sun can now drop below the horizon.
+
+**Next:** golden light on the tops of evening cloud (it's a bit muddy at the moment), and the cloud shapes against more references.
+
+
 ## 006: The beach edge, cumulus, and no more flashing (2026-10-02)
 
 - **Flashing waterline fixed:**

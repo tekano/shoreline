@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import {createLook} from './look.js';
+import {createLook,sunLightingFor} from './look.js';
 import {createGrass} from './grass.js';
 import {loadLandcover} from './landcover.js';
 import {makeNoiseTexture} from '../src/noise.js?v=1.3.0';
@@ -34,7 +34,7 @@ const height=(x,z)=>{const w=nearEdge(x,z);return w>0?sample(near,x,z)*w+sample(
 const DEFAULT={...meta.cameras.westshore,tide:-1.5,haze:1,sunaz:195,sunel:52,tint:1};
 const saved=read();
 const presets={...meta.cameras,...saved};
-const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,...DEFAULT,...(saved.__last||{})};
+const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,exposure:1,...DEFAULT,...(saved.__last||{})};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
 
 // ---------- renderer ----------
@@ -42,19 +42,20 @@ const view=$('view');
 const renderer=new THREE.WebGPURenderer({antialias:true,reversedDepthBuffer:true,forceWebGL:new URLSearchParams(location.search).has('webgl')});
 await renderer.init();
 renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
-renderer.toneMapping=THREE.NeutralToneMapping;
+renderer.toneMapping=THREE.NeutralToneMapping;   // rolls off the HDR sky and sun while keeping hue and saturation
 view.prepend(renderer.domElement);$('status').remove();
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(40,1,.3,60000);
 const sun=new THREE.DirectionalLight('#fff4e2',3.0);scene.add(sun,sun.target);
 const hemi=new THREE.HemisphereLight('#a9c4ea','#7a6f5c',1.1);scene.add(hemi);
 const haze=new THREE.Color('#a9c1db');
-scene.fog=new THREE.FogExp2(haze,0);
+
 
 // the look (sky, ground, sea) lives in look.js; U.tint switches clay ↔ colour
 const landcover=await loadLandcover(meta);
 const look=createLook({noiseTex:makeNoiseTexture(),far,near,tide:state.tide,landcover});
 const U=look.U;
+scene.fogNode=look.fogNode;   // aerial perspective coloured by the sky in each direction
 const ground=look.ground;
 const skyDome=new THREE.Mesh(new THREE.SphereGeometry(50000,48,24),look.skyMaterial);skyDome.frustumCulled=false;skyDome.renderOrder=-1;scene.add(skyDome);
 const water=new THREE.Mesh(new THREE.PlaneGeometry(200000,200000).rotateX(-Math.PI/2),look.sea);water.renderOrder=2;
@@ -108,11 +109,17 @@ function apply(){
  water.position.y=state.tide+look.SWASH;U.tide.value=state.tide;U.clouds.value=state.clouds;U.swell.value=state.swell;U.tint.value=+state.tint;skyDome.position.copy(camera.position);
  // the waterline field is rebuilt after the tide slider settles
  if(state.tide!==seaTide){clearTimeout(seaTimer);seaTimer=setTimeout(()=>{look.updateSea(state.tide);seaTide=state.tide;},120);}
- scene.fog.density=state.haze*0.00006;
+ U.haze.value=state.haze;renderer.toneMappingExposure=state.exposure;
  const az=state.sunaz*Math.PI/180,el=state.sunel*Math.PI/180;
  sun.position.set(x+Math.sin(az)*Math.cos(el)*5000,camY+Math.sin(el)*5000,z-Math.cos(az)*Math.cos(el)*5000);sun.target.position.set(x,camY,z);
  U.sun.value.set(Math.sin(az)*Math.cos(el),Math.sin(el),-Math.cos(az)*Math.cos(el));
- for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell'])$(k).value=state[k];
+ // light the scene with the sun's colour after its path through the air, and the sky's
+ const {T,zen}=sunLightingFor(U.sun.value),tm=Math.max(...T,1e-4),zm=Math.max(...zen);
+ U.sunLight.value.set(T[0]*3.4,T[1]*3.4,T[2]*3.4);U.skyAmb.value.set(...zen);
+ sun.color.setRGB(T[0]/tm,T[1]/tm,T[2]/tm);sun.intensity=3.4*tm;
+ hemi.color.setRGB(zen[0]/zm,zen[1]/zm,zen[2]/zm);hemi.intensity=Math.min(1.3,zm/.29*1.1)+.03;
+ for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','exposure'])$(k).value=state[k];
+ $('exposure-v').textContent=state.exposure.toFixed(2);
  $('clouds-v').textContent=Math.round(state.clouds*100)+'%';$('swell-v').textContent=state.swell.toFixed(2);
  $('motion').value=state.motion;$('panDeg-v').textContent=state.panDeg;$('panSecs-v').textContent=state.panSecs;
  $('fov').value=state.mm??fovToMm(state.fov);$('tint').value=state.tint;
@@ -130,7 +137,7 @@ function fovToMm(v){return Math.round(24/(2*Math.tan(v*Math.PI/360)));}
 for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
 $('fov').oninput=e=>{state.mm=+e.target.value;apply();};
 $('tint').onchange=e=>{state.tint=+e.target.value;apply();};
-for(const k of ['panDeg','panSecs','clouds','swell'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
+for(const k of ['panDeg','panSecs','clouds','swell','exposure'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
 $('motion').onchange=e=>{state.motion=e.target.value;panStart=performance.now()/1000;apply();};
 function fillPresets(){const all={...meta.cameras,...read()};delete all.__last;$('preset').innerHTML='<option value="">Choose a view…</option>'+Object.entries(all).map(([k,v])=>`<option value="${k}">${v.label||k}</option>`).join('');}
 fillPresets();

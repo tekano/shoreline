@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import {Fn,uniform,float,vec2,vec3,color,texture,mix,smoothstep,max,min,abs,pow,dot,normalize,reflect,clamp,cos,sin,exp,fract,floor,step,
+import {Fn,uniform,float,vec2,vec3,vec4,color,texture,mix,smoothstep,max,min,abs,pow,dot,normalize,reflect,clamp,cos,sin,acos,exp,fract,floor,step,length,fog,screenUV,screenCoordinate,
  positionWorld,normalWorld,cameraPosition,reflectVector,bumpMap} from 'three/tsl';
 
 // The look of the Walney scene, matched to photos of the place: summer sky
@@ -10,7 +10,8 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  const U={
   sun:uniform(new THREE.Vector3(0,1,0)),time:uniform(0),tide:uniform(tide),tint:uniform(1),
   wind:uniform(new THREE.Vector2(.8,.6)),windSpeed:uniform(7),   // m/s, blowing toward +x/+z (onshore from the south-west)
-  swell:uniform(.8),clouds:uniform(.5),haze:uniform(1)
+  swell:uniform(.8),clouds:uniform(.5),haze:uniform(1),
+  sunLight:uniform(new THREE.Vector3(3,3,3)),skyAmb:uniform(new THREE.Vector3(.2,.3,.5))   // scene-unit sun and skylight, set from the sun's height
  };
  const noise=uv=>texture(noiseTex,uv);
  const rot=(p,a)=>vec2(p.x.mul(Math.cos(a)).sub(p.y.mul(Math.sin(a))),p.x.mul(Math.sin(a)).add(p.y.mul(Math.cos(a))));
@@ -31,53 +32,126 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   return smoothstep(.32,.78,big.mul(.75).add(small.mul(.25)));
  });
 
- // ---------- cumulus ----------
- // One cloud field on a layer 1.6 km up, drifting with the wind. The sky draws
- // it, and the ground, grass and sea darken where it shades the sun, so the
- // cloud shadows sweeping the land belong to the clouds you can see.
- const CLOUD_H=1600;
- const cloudDensity=Fn(([xz])=>{
-  const q=xz.sub(normalize(U.wind).mul(U.time.mul(U.windSpeed).mul(1.4)));
-  const base=F(q.mul(1/4200),.7).mul(.58).add(F(q.mul(1/1300),1.9).mul(.28)).add(V(q.mul(1/330),.3).mul(.14));
-  const th=mix(float(.78),float(.38),U.clouds);
-  return smoothstep(th,th.add(.07),base);
+ // ---------- atmosphere ----------
+ // An approximate single-scattering sky: sunlight is reddened by the air it
+ // crosses (more air when the sun is low), then scattered toward the eye by
+ // air molecules (blue, even all round) and haze (white, bunched round the sun).
+ // Not a full simulation, but it gives a believable blue day, a bright hazy
+ // horizon and sunsets from the same few lines. Values are HDR.
+ const ESUN=26;
+ const BR=vec3(5.8e-6,13.5e-6,33.1e-6).mul(8000),BM=vec3(12e-6).mul(1200);   // a clear summer day: little haze in the sky itself
+ const airMass=mu=>{const m=clamp(mu,0,1),z=acos(m).mul(57.2958);return float(1).div(m.add(pow(max(float(96.07995).sub(z),.5),-1.6364).mul(.50572)));};
+ const sunTrans=muS=>exp(BR.add(BM).mul(airMass(muS)).negate()).mul(smoothstep(-.06,.03,muS));
+ const hg=(c,g)=>float(1-g*g).div(pow(float(1+g*g).sub(c.mul(2*g)),1.5).mul(12.566));
+ const atmosphere=Fn(([dir])=>{
+  const d=normalize(dir).toVar(),s=normalize(U.sun);
+  const c=dot(d,s);
+  // looking up, you see light scattered high in the air, which crossed less of it: bluer overhead at sunset
+  const ts=sunTrans(s.y.add(max(d.y,0).mul(.45)).add(.01));
+  const phaseR=float(1).add(c.mul(c)).mul(.0597),phaseM=hg(c,.76);
+  const tauV=BR.add(BM).mul(airMass(max(d.y,0)));
+  const scatter=BR.mul(phaseR).add(BM.mul(phaseM)).div(BR.add(BM));
+  const col=ts.mul(scatter).mul(float(1).sub(exp(tauV.negate()))).mul(ESUN).toVar();
+  col.addAssign(ts.mul(ESUN*3).mul(smoothstep(.99994,.99998,c)).mul(step(0,d.y)));   // the sun's disc
+  col.addAssign(vec3(.002,.003,.007));                                                   // night floor
+  return col;
  });
- const cloudShade=Fn(([pw])=>{                       // 1 in sun, ~.45 in cloud shadow
+
+ // ---------- clouds ----------
+ // Cumulus live in a slab 1.4-2.7 km up, drifting with the wind. Their large
+ // shapes come from smooth noise; Worley (cellular) noise eats the edges into
+ // cauliflower billows. The sky ray-marches the slab; reflections, cloud
+ // shadows and the ground use a cheap flat version of the same field.
+ const CB=1400,CT=2700;
+ const hash22=p=>{const p3=fract(vec3(p.x,p.y,p.x).mul(vec3(.1031,.1030,.0973))).toVar();p3.addAssign(dot(p3,p3.yzx.add(33.33)));return fract(p3.xx.add(p3.yz).mul(p3.zy));};
+ const worley=Fn(([p])=>{
+  const i=floor(p),f=fract(p),md=float(8).toVar();
+  for(let y=-1;y<=1;y++)for(let x=-1;x<=1;x++){const o=vec2(x,y);md.assign(min(md,length(o.add(hash22(i.add(o))).sub(f))));}
+  return md;
+ });
+ const drift=()=>normalize(U.wind).mul(U.time.mul(U.windSpeed).mul(1.4));
+ const coverage=xz=>{const q=xz.sub(drift());return F(q.mul(1/5200),.7).mul(.62).add(F(q.mul(1/1700),1.9).mul(.38));};
+ const threshold=()=>mix(float(.74),float(.38),U.clouds);
+ const cloudDensity=Fn(([xz])=>smoothstep(threshold(),threshold().add(.05),coverage(xz)));    // flat version
+ const density3=pos=>{
+  const h=clamp(pos.y.sub(CB).div(CT-CB),0,1);
+  const q=pos.xz.sub(drift());
+  const shape=coverage(pos.xz).sub(threshold().add(pow(h,1.4).mul(.55)));        // tops need much more cover: rounded domes, never a flat lid
+  const w=worley(q.mul(1/560).add(vec2(pos.y.mul(.0011),0))).mul(.65).add(worley(q.mul(1/170).add(vec2(0,pos.y.mul(.003)))).mul(.35));
+  return clamp(shape.sub(w.mul(.16).mul(float(1).sub(h.mul(.4)))).mul(7),0,1).mul(smoothstep(0,.05,h));
+ };
+ const cloudShade=Fn(([pw])=>{                       // 1 in sun, ~.4 in cloud shadow
   const s=normalize(U.sun);
-  const onLayer=pw.xz.add(s.xz.div(max(s.y,.15)).mul(float(CLOUD_H).sub(pw.y)));
-  return float(1).sub(cloudDensity(onLayer).mul(.55).mul(smoothstep(0,.08,s.y)));
+  const onLayer=pw.xz.add(s.xz.div(max(s.y,.15)).mul(float(CB+400).sub(pw.y)));
+  return float(1).sub(cloudDensity(onLayer).mul(.6).mul(smoothstep(0,.08,s.y)));
+ });
+ const cloudMarch=Fn(([dir])=>{
+  const d=normalize(dir),s=normalize(U.sun),c=dot(d,s);
+  const dy=max(d.y,.02);
+  const t0=float(CB).sub(cameraPosition.y).div(dy),t1=float(CT).sub(cameraPosition.y).div(dy);
+  const STEPS=16,ds=t1.sub(t0).div(STEPS);
+  const jit=fract(fract(dot(screenCoordinate.xy,vec2(.06711056,.00583715))).mul(52.9829189));   // interleaved gradient noise: even, low-grain jitter
+  const T=float(1).toVar(),L=vec3(0).toVar();
+  const phase=mix(hg(c,.6),hg(c,-.25),.35).mul(9);                     // forward-scattering silver toward the sun
+  for(let k=0;k<STEPS;k++){
+   const t=t0.add(ds.mul(float(k).add(jit)));
+   const pos=cameraPosition.add(d.mul(t));
+   const den=density3(pos);
+   const h=clamp(pos.y.sub(CB).div(CT-CB),0,1);
+   const toward=cloudDensity(pos.xz.add(s.xz.mul(260)));                 // how much cloud lies toward the sun
+   const sunT=exp(toward.mul(float(1).sub(h.mul(.6))).mul(-2.6));
+   const powder=float(1).sub(exp(den.mul(-3)));                          // dark cores, bright edges
+   const S=U.sunLight.mul(sunT).mul(phase.add(.8)).mul(powder.mul(.6).add(.4)).mul(1.5).add(U.skyAmb.mul(float(.35).add(h.mul(.65))).mul(2.4));
+   const a=float(1).sub(exp(den.mul(ds).mul(-.012)));
+   L.addAssign(S.mul(a).mul(T));
+   T.mulAssign(float(1).sub(a));
+  }
+  // distant clouds sink into the haze
+  const far=float(1).sub(exp(t0.mul(-1/30000).mul(U.haze.add(.3))));
+  return vec4(mix(L,atmosphere(vec3(d.x,.03,d.z)).mul(float(1).sub(T)),far),T);
  });
 
  // ---------- sky ----------
- const sky=Fn(([dir])=>{
-  const d=normalize(dir).toVar(),el=max(d.y,0);
-  const zenith=color('#2f6cc6'),mid=color('#5d95d8'),horizon=color('#b2d0e8');
-  const c=mix(horizon,mid,smoothstep(0,.22,el)).toVar();
-  c.assign(mix(c,zenith,smoothstep(.22,.95,el)));
-  const sd=max(dot(d,U.sun),0);
-  c.addAssign(color('#fff1d6').mul(pow(sd,48).mul(.35).add(pow(sd,2400).mul(30))));
-  // high cirrus: a cloud layer 9 km up, combed out along the wind (thins as cumulus builds)
+ // skyFull: the dome, with ray-marched clouds. sky: the cheap version used for
+ // reflections on wet sand and water, and for skylight on the ground.
+ const cirrus=d=>{
   const pc=d.xz.div(max(d.y,.03)).mul(9000);
   const wdir=normalize(U.wind),across=vec2(wdir.y.negate(),wdir.x);
   const ci=vec2(dot(pc,wdir).mul(.00003),dot(pc,across).mul(.00022)).add(vec2(U.time.mul(.0004),0));
-  const cirrus=pow(smoothstep(.45,.85,F(ci,.3)),2).mul(smoothstep(.04,.25,el)).mul(float(.55).sub(U.clouds.mul(.35)));
-  c.assign(mix(c,color('#f4f7fb'),cirrus));
-  // cumulus: where this ray meets the cloud layer, world-anchored so the
-  // clouds overhead are the ones casting shadows on the ground below
-  const t=float(CLOUD_H).sub(cameraPosition.y).div(max(d.y,.012));
-  const xz=cameraPosition.xz.add(d.xz.mul(t));
-  const dens=cloudDensity(xz);
-  const sunward=cloudDensity(xz.add(normalize(U.sun.xz.add(vec2(1e-4,0))).mul(220)));
-  const puff=F(xz.mul(1/420),2.7);                                              // billows catching the light
-  const lit=float(1).sub(sunward.mul(.7)).mul(mix(.75,1.12,puff));
-  const silver=clamp(pow(sd,8).mul(float(1).sub(dens).mul(2.5)),0,1);       // bright rims toward the sun
-  const cloudC=mix(color('#75849b'),color('#f7f8fa'),clamp(lit,0,1)).add(color('#ffffff').mul(silver.mul(.35)));
-  const fadeH=smoothstep(.012,.07,el);                                           // far clouds melt into the haze
-  c.assign(mix(c,mix(horizon,cloudC,fadeH.mul(.85).add(.15)),dens.mul(.95)));
-  return mix(color('#b9c9d8'),c,smoothstep(-.02,.0,d.y));
+  return pow(smoothstep(.45,.85,F(ci,.3)),2).mul(smoothstep(.04,.25,d.y)).mul(float(.45).sub(U.clouds.mul(.3)));
+ };
+ const sky=Fn(([dir])=>{
+  const d=normalize(dir).toVar();
+  const c=atmosphere(d).toVar();
+  c.assign(mix(c,U.sunLight.mul(.55).add(U.skyAmb.mul(1.5)),cirrus(d)));
+  const t=float(CB+400).sub(cameraPosition.y).div(max(d.y,.02));
+  const dens=cloudDensity(cameraPosition.xz.add(d.xz.mul(t))).mul(smoothstep(0,.05,d.y));
+  const cloudC=U.sunLight.mul(.32).add(U.skyAmb.mul(1.6));
+  c.assign(mix(c,cloudC,dens.mul(.9)));
+  return c;
+ });
+ const skyFull=Fn(([dir])=>{
+  const d=normalize(dir).toVar();
+  const c=atmosphere(d).toVar();
+  c.assign(mix(c,U.sunLight.mul(.55).add(U.skyAmb.mul(1.5)),cirrus(d)));
+  const cl=cloudMarch(d);
+  return c.mul(cl.w).add(cl.xyz).mul(step(0,d.y)).add(atmosphere(vec3(d.x,.0,d.z)).mul(step(d.y,0)));
  });
  const skyMaterial=new THREE.MeshBasicNodeMaterial({side:THREE.BackSide,depthWrite:false,fog:false});
- skyMaterial.colorNode=sky(positionWorld.sub(cameraPosition));
+ skyMaterial.colorNode=skyFull(positionWorld.sub(cameraPosition));
+
+ // ---------- aerial perspective ----------
+ // Haze thickens toward sea level (1.2 km scale height) and takes its colour
+ // from the sky in the direction you look: warm toward a low sun, blue away.
+ const fogFactor=Fn(()=>{
+  const v=positionWorld.sub(cameraPosition),dist=v.length();
+  const y0=cameraPosition.y,y1=positionWorld.y,ym=y0.add(y1).mul(.5);
+  const e=y=>exp(max(y,-50).div(-1200));
+  const od=dist.mul(e(y0).add(e(ym).mul(4)).add(e(y1)).div(6)).mul(U.haze.mul(.00006));
+  return float(1).sub(exp(od.negate()));
+ });
+ const fogDir=Fn(()=>{const v=positionWorld.sub(cameraPosition);const n=normalize(v);return vec3(n.x,max(n.y,.01),n.z);});
+ const fogNode=fog(atmosphere(fogDir()).mul(.95),fogFactor());
 
  // ---------- sea field: bed height, distance from the waterline, openness ----------
  // Recomputed whenever the tide moves, so breaker lines follow the real waterline.
@@ -276,13 +350,22 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   const body=mix(color('#8c8770'),color('#6f7e72'),smoothstep(.15,1.2,depth)).toVar();
   body.assign(mix(body,color('#3c6470'),smoothstep(1.2,4,depth)));
   body.assign(mix(body,color('#264b5e'),smoothstep(5,14,depth)));
-  body.mulAssign(float(.75).add(max(U.sun.y,0).mul(.35)).mul(cloudShade(positionWorld)));
+  const shadeS=cloudShade(positionWorld);
+  // lit by the real sun (reddened when low) and the sky, and darkened in cloud shadow
+  body.mulAssign(U.sunLight.mul(max(U.sun.y,0)).mul(shadeS).mul(.32).add(U.skyAmb.mul(.9)));
   const ndv=max(dot(n,eye),0);
   const fres=float(.02).add(pow(float(1).sub(ndv),5).mul(.98));
   const refl=sky(reflect(eye.negate(),n)).mul(.85);
   const col=mix(body,refl,fres).toVar();
-  col.addAssign(color('#fff3dc').mul(pow(max(dot(reflect(U.sun.negate(),n),eye),0),220).mul(4)).mul(cloudShade(positionWorld)));
-  col.assign(mix(col,color('#f1f3f2').mul(float(.85).add(max(U.sun.y,0).mul(.2))).mul(cloudShade(positionWorld).mul(.4).add(.6)),foam));
+  // sun glitter: countless tiny facets, some tilted to mirror the sun into the eye.
+  // The rougher the water (wind, open sea), the wider and softer the glitter path.
+  const hS=normalize(U.sun.add(eye)),nh=max(dot(n,hS),.001),nh2=nh.mul(nh);
+  const sig2=float(.0012).add(chop.mul(.014));
+  const D=exp(float(1).sub(nh2).div(nh2).div(sig2).negate()).div(sig2.mul(3.1416).mul(nh2).mul(nh2));
+  const Fh=float(.02).add(pow(float(1).sub(max(dot(hS,eye),0)),5).mul(.98));
+  col.addAssign(U.sunLight.mul(min(D.mul(Fh).div(max(ndv,.15).mul(4)),60)).mul(shadeS).mul(step(0,U.sun.y)));
+  const foamLit=vec3(.93).mul(U.sunLight.mul(max(U.sun.y,0)).mul(shadeS).mul(.3).add(U.skyAmb.mul(1.3)));
+  col.assign(mix(col,foamLit,foam));
   return col;
  })();
  sea.opacityNode=Fn(()=>{
@@ -298,5 +381,18 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  // CPU twins for placing things: zone at a point from the far grid
  const fieldAt=(arr,x,z)=>{const i=Math.min(Math.max(Math.round((x-far.west)/far.res-.5),0),far.w-1),j=Math.min(Math.max(Math.round((z-far.north)/far.res-.5),0),far.hgt-1);return arr[j*far.w+i];};
  const hwDistAt=(x,z)=>fieldAt(hw,x,z)*far.res;
- return {U,sky,skyMaterial,ground,sea,updateSea,gust,cloudShade,F,V,hwDistAt,SWASH};
+ return {U,sky,skyMaterial,ground,sea,updateSea,gust,cloudShade,F,V,hwDistAt,SWASH,fogNode,sunLightingFor};
+}
+
+// CPU twin of the atmosphere, for the scene's lights: the sun's colour after
+// crossing the air at this elevation, and the zenith sky's colour (both HDR).
+export function sunLightingFor(sun){
+ const m=Math.min(Math.max(sun.y,0),1),z=Math.acos(m)*57.2958;
+ const am=1/(m+.50572*Math.pow(Math.max(96.07995-z,.5),-1.6364));
+ const br=[5.8e-6*8000,13.5e-6*8000,33.1e-6*8000],bm=12e-6*1200;
+ const fade=Math.min(Math.max((sun.y+.06)/.09,0),1),fs=fade*fade*(3-2*fade);
+ const T=br.map(b=>Math.exp(-(b+bm)*am)*fs);
+ const c=sun.y,pr=(1+c*c)*.0597,pm=(1-.76*.76)/(12.566*Math.pow(1+.76*.76-2*.76*c,1.5));
+ const zen=br.map((b,i)=>T[i]*(b*pr+bm*pm)/(b+bm)*(1-Math.exp(-(b+bm)))*26+[.002,.003,.007][i]);
+ return {T,zen};
 }
