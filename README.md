@@ -1,72 +1,53 @@
-# Shoreline
+# Shoreline: Walney
 
-Realtime breaking waves on a beach, in the browser. three.js on WebGPU, with a WebGL 2 fallback.
+**Painting my home coastline in code.** A creative-coding art piece, work in progress: north Walney Island and the Duddon estuary in Cumbria, looking toward Black Combe, rebuilt in the browser with three.js (WebGPU).
 
-**Live demo: https://tekano.github.io/shoreline/**
+**▶ Visit: https://tekano.github.io/shoreline/**
 
-Shoreline combines the best parts of two open-source projects and then builds on them:
+![Sunset behind the fells from the Sandscale dunes](docs/walney-dusk.jpg)
 
-- the **water physics** from [Saltreach](https://github.com/iamtechartist/coastal-simulation) by Techartist: a shallow-water solver where waves bend over the seabed, wrap around rocks and run up the sand, with foam carried along by the flow;
-- the **look** from [reality-js](https://github.com/aiimpl/reality-js) by ai_impl: foam that breaks up into lace instead of fading, water that absorbs red first and turns sandy in the surf zone, light through the crests, and sun glints.
+It's a "reality meme": take the real place and get the feeling right. The ground is real survey data, the colours come from my own photos, and the rest is painted with shaders: sky, sea, grass and light. It's made in conversation with [Claude Code](https://claude.com/claude-code), steering by eye the way you'd art-direct a shot. The [devlog](DEVLOG.md) tells the story.
 
-Both are MIT licensed; see [Credits](#credits). The direction from here is in the [devlog](DEVLOG.md).
+| West Shore, wet sand and cumulus | A grey Irish Sea day | Orion over the dunes in January |
+|---|---|---|
+| ![](docs/walney-west-shore.jpg) | ![](docs/walney-grey-day.jpg) | ![](docs/walney-orion.jpg) |
 
-![Ocean to shore, v0.1](docs/v0.1-ocean-to-shore.jpg)
+## What's real and what's painted
 
-| Saltreach original foam | Shoreline v0.1: lace foam, sandy surf zone |
+| Real | Painted |
 |---|---|
-| ![Saltreach original](docs/v0.1-saltreach-original.jpg) | ![Shoreline lace](docs/v0.1-lace.jpg) |
+| **Terrain:** Environment Agency 1–2 m LiDAR, dunes, flats, channels and Black Combe at true height | **Sky:** approximate single scattering, ray-marched cumulus with Worley billows, an overcast deck |
+| **Land cover:** OpenStreetMap saltmarsh, sand, tracks, roads and fields, plus 13,000 building footprints and the wind turbines | **Sea:** directional waves layered by distance, waves that bend to the real shoreline and break, lace whitewater, sun glitter and glints |
+| **Sun and stars:** the true sun path and ~75 bright stars for any date and time over Walney | **Marram:** ~270,000 blades moving in one shared wind, with hero tussocks up close |
+| **Colours:** sampled from my own photos and a 360° pano from the Sandscale dunes | **Tide:** a real-height tide slider that floods the flats and marsh, with swash, pools and mirror-wet sand |
 
-## Walney: a real place
+**Hero view:** the dune top at Sandscale Haws, where my pano was taken. Pick it from the **View** menu. Everything else is a bonus to explore.
 
-The scene is moving to a real location: north Walney Island and the Duddon estuary, looking toward Black Combe in Cumbria. [`walney/`](walney/) is a blockout of the real terrain from Environment Agency LiDAR, with a top-down map for placing camera views ([live](https://tekano.github.io/shoreline/walney/)).
-
-## Run it
-
-Any static server works. This one turns caching off so shader edits show on reload:
+## Run it locally
 
 ```sh
-python tools/serve.py        # then open http://localhost:8792
+python tools/serve.py        # then open http://localhost:8792/  (it goes to walney/)
 ```
 
-It needs a browser with WebGPU (current Chrome, Edge or Safari). Add `?webgl=1` to the URL to force WebGL 2.
+It needs a browser with WebGPU (current Chrome, Edge or Safari). [`walney/README.md`](walney/README.md) explains the terrain and land-cover pipeline (`terrain/`) and the camera tools.
 
-## Controls
+## Where it started
 
-- **Moving around:** drag to look, `W A S D` to walk, `Shift` to move faster, scroll to step forward or back.
-- **Keys:** `Space` pauses, `C` cycles viewpoints, `H` hides all panels.
-- **Look panel (top right):** every slider drives the shader live:
-  - **View layer:** see one layer on its own: the simulated foam amount, the foam pattern, water depth or flow.
-  - **Sun:** elevation and azimuth.
-  - **Foam lifetime:** how fast fresh and lingering foam die off in the simulation.
-  - **Foam pattern:** lace scale, thread width, sheet threshold, breakup, warp, re-form period, relief and shadows.
-  - **Whitewater:** where dense foam turns into a solid lumpy mass.
-  - **Water body:** absorption per channel, clear and sandy colours, surf-zone depth.
-  - **Crest light** and **Surface:** reflection, glints, foam sparkle.
-  - **Presets:** save, load, copy and paste as JSON. `Saltreach original` gives you the upstream look for A/B comparison.
+Before Walney, Shoreline v0.1 combined two open-source projects into a beach-wave toy. It lives on at [`hybrid/`](https://tekano.github.io/shoreline/hybrid/):
+- [Saltreach](https://github.com/iamtechartist/coastal-simulation)'s shallow-water simulation;
+- [reality-js](https://github.com/aiimpl/reality-js)'s foam lace, water colour and glints.
 
-## How it works
-
-| Part | What it does | Where |
-|---|---|---|
-| Solver | Shallow-water equations on a 241 × 401 grid (0.3 m cells) at 60 Hz, in a worker with WebAssembly kernels. Waves are forced at the open edges. Rocks are just raised seabed, so the water flows around and over them | `src/simulation.js`, `src/solver-kernels.ts` |
-| Foam amount | Created where a bore steepens, where the swash advances and where water hits rocks. Fresh foam feeds lingering foam. Both ride the flow | `transport()` in `src/simulation.js` |
-| Flow-carried coordinates | Texture coordinates carried by the flow, so the foam pattern stretches and drains with the water | `qx/qz` in `src/simulation.js` |
-| Foam pattern | The foam amount sets the pattern: a sheet with holes, then threads from noise contours, then snapped threads. Two layers swap so it keeps re-forming | `lace()` in `src/look.js` |
-| Water colour | Light absorbed along the view path, cloudy sandy water in the surf zone, green glow through steep crests | `src/shading.js` |
-| Glints | Tiny facets with random slopes. Only those tilted to mirror the sun light up | `glints()` in `src/look.js` |
-
-Changes from the upstream code are commented where they happen. `src/look.js` and `src/panel.js` are new.
+Walney still uses ideas and code from both: the lace foam, glints and absorption. Its noise texture and vendored three.js come from Saltreach.
 
 ## Credits
 
-- **Saltreach** © 2026 Techartist, MIT ([licence](third_party/saltreach-LICENSE)): the base of this repo, including the solver, world, camera, sky, sand and rocks.
-- **reality-js** © 2026 ai_impl, MIT ([licence](third_party/reality-js-LICENSE)): the foam lace, absorption, surf-zone colour, crest light and glint shaders, ported from GLSL to TSL.
+- **Saltreach** © 2026 Techartist, MIT ([licence](third_party/saltreach-LICENSE)): the v0.1 base (solver, world, camera) and the noise texture.
+- **reality-js** © 2026 ai_impl, MIT ([licence](third_party/reality-js-LICENSE)): the foam lace, absorption, surf-zone colour, crest light and glint ideas, ported from GLSL to TSL.
 - **three.js** r185, MIT ([threejs.org](https://threejs.org)), vendored in `vendor/`.
-- **lil-gui** 0.20, MIT ([licence](vendor/lil-gui/LICENSE)): the look panel.
+- **lil-gui** 0.20, MIT ([licence](vendor/lil-gui/LICENSE)): the v0.1 look panel.
 - **Terrain** © Environment Agency copyright and/or database right 2022, [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
-- **Land cover** map data © OpenStreetMap contributors, [ODbL](https://opendatacommons.org/licenses/odbl/) (derived rasters in `walney/data/` share that licence).
+- **Land cover and buildings:** map data © OpenStreetMap contributors, [ODbL](https://opendatacommons.org/licenses/odbl/). The derived files in `walney/data/` share that licence.
 
 ## Licence
 
-MIT, see [LICENSE](LICENSE).
+Code: MIT, see [LICENSE](LICENSE). Data: as credited above.
