@@ -24,42 +24,12 @@ export function createSea({look}){
  const tanh=x=>{const t=exp(x.mul(-2));return float(1).sub(t).div(float(1).add(t));};   // x >= 0 here
  const compass=h=>vec2(Math.sin(h*Math.PI/180),-Math.cos(h*Math.PI/180));   // x east, z south
 
- // ---------- vertex: displaced surface ----------
- const p0=attribute('position','vec3').xz;
- const f0=seaField(p0),open0=f0.z,dist0=f0.y;
- const bed0=bedAt(p0),depth0=max(U.tide.sub(bed0),0);
- const r0=length(p0.sub(cameraPosition.xz));
- const spacing=float(.3).add(r0.mul(.013));                       // roughly the grid spacing here
- const exposure=open0.mul(.8).add(.2);
- const wdir=normalize(U.wind);
- const windAmp=pow(U.windSpeed.div(8),2);
- // more wind builds longer waves, and longer waves travel faster (c = sqrt(g L / 2pi)),
- // so the sea speeds up with the wind as well as getting rougher
- const windStretch=pow(max(U.windSpeed.div(8),.3),1.4);
- let dx=float(0),dz=float(0),dy=float(0),sx=float(0),sz=float(0),crestG=float(0);
- const addWave=(dir,l,a,steep,phase)=>{
-  const L=float(l),k=float(2*Math.PI).div(L);
-  const om=sqrt(tanh(depth0.mul(k)).mul(k).mul(G));
-  // fade a component out where the grid cannot carry it, and where the water is too shallow
-  // short-crested: height wanders along each crest over a few wavelengths, so crests break into segments
-  const mod=V(vec2(dot(dir,p0),dot(vec2(dir.y.negate(),dir.x),p0).mul(1.8)).div(L.mul(4.5)),.37).mul(1.1).add(.45);
-  const amp=a.mul(mod).mul(smoothstep(spacing.mul(3.5),spacing.mul(7),L)).mul(smoothstep(.1,1.2,depth0));
-  const th=dot(dir,p0).mul(k).sub(om.mul(U.time)).add(phase);
-  const c=cos(th),s=sin(th);
-  dx=dx.add(dir.x.mul(amp.mul(steep).mul(c)));dz=dz.add(dir.y.mul(amp.mul(steep).mul(c)));
-  dy=dy.add(amp.mul(s));
-  sx=sx.add(dir.x.mul(amp.mul(k).mul(c)));sz=sz.add(dir.y.mul(amp.mul(k).mul(c)));
-  crestG=crestG.add(amp.mul(s).div(max(a,.001)));
- };
- for(const w of SWELL)addWave(compass(w.h),w.l,U.swell.mul(w.a).mul(exposure),w.s,w.p);
- for(const w of WIND){
-  const c=Math.cos(w.o*Math.PI/180),s=Math.sin(w.o*Math.PI/180);
-  addWave(vec2(wdir.x.mul(c).sub(wdir.y.mul(s)),wdir.x.mul(s).add(wdir.y.mul(c))),windStretch.mul(w.l),windAmp.mul(w.a).mul(sqrt(windStretch)).mul(open0.mul(.85).add(.15)),w.s,w.p);
- }
- // shoreline layer: runs in along the distance field, peaks up, breaks, dies on the
- // sand. One function, called by both the vertex stage (to move the surface) and
- // the fragment stage (to place the whitewater), so nothing has to be passed between them.
+ // ---------- the wave surface ----------
+ // One function gives the displacement and the exact slope at any point. The
+ // vertex stage uses the displacement to move the grid; the fragment stage uses
+ // the slope for a smooth per-pixel normal (no triangle facets).
  const LS=40,LS2=27;
+ // shoreline layer: runs in along the distance field, peaks up, breaks, dies on the sand
  const shoreAt=(p,depth,dist,open,windAmp)=>{
   const along=F(p.mul(.004),.9).mul(9).add(F(p.mul(.0011),2.2).mul(7));
   const shoal=float(1).add(float(1).sub(smoothstep(.3,6,depth)).mul(.8));
@@ -75,20 +45,53 @@ export function createSea({look}){
   const wS=float(1).sub(smoothstep(3,10,depth));                  // takes over in the shallows
   return {shoal,Hs,Hs2,phS,phS2,breaking,breaking2,wS};
  };
- const sh0=shoreAt(p0,depth0,dist0,open0,windAmp);
- const {shoal,Hs,Hs2,phS,phS2,breaking,breaking2,wS}=sh0;
- const cs=cos(phS).mul(.5).add(.5),shapeS=pow(cs,3).mul(1.7).sub(.45);   // peaked crests, long flat troughs
- const cs2=cos(phS2).mul(.5).add(.5),shapeS2=pow(cs2,3).mul(1.7).sub(.45);
- const yS=Hs.mul(shapeS).mul(float(1).sub(breaking.mul(.6))).add(Hs2.mul(shapeS2).mul(float(1).sub(breaking2.mul(.6)))).mul(wS);
- // slope of the shoreline layer, from the distance field's gradient
- const e=8,gd=vec2(seaField(p0.add(vec2(e,0))).y.sub(dist0),seaField(p0.add(vec2(0,e))).y.sub(dist0)).div(e);
- const dShape=pow(cs,2).mul(sin(phS)).mul(-2.55).mul(6.2832/LS).mul(shoal);
- const dShape2=pow(cs2,2).mul(sin(phS2)).mul(-2.55).mul(6.2832/LS2).mul(shoal);
- const sS=gd.mul(dShape.mul(Hs).add(dShape2.mul(Hs2))).mul(wS);
- const wD=float(1).sub(wS.mul(.75));
- // near the waterline the surface is lifted so the swash can run up the sand (see opacity)
- const lift=float(SWASH).mul(smoothstep(1.5,0,depth0));
- const posW=vec3(p0.x.add(dx.mul(wD)),U.tide.add(dy.mul(wD)).add(yS).add(lift),p0.y.add(dz.mul(wD)));
+ const surfaceAt=p=>{
+  const f=seaField(p),open=f.z,dist=f.y;
+  const depth=max(U.tide.sub(bedAt(p)),0);
+  const spacing=float(.3).add(length(p.sub(cameraPosition.xz)).mul(.013));   // roughly the grid spacing here
+  const exposure=open.mul(.8).add(.2);
+  const wdir=normalize(U.wind);
+  const windAmp=pow(U.windSpeed.div(8),2);
+  // more wind builds longer waves, and longer waves travel faster (c = sqrt(g L / 2pi)),
+  // so the sea speeds up with the wind as well as getting rougher
+  const windStretch=pow(max(U.windSpeed.div(8),.3),1.4);
+  let dx=float(0),dz=float(0),dy=float(0),sx=float(0),sz=float(0);
+  const addWave=(dir,L,a,steep,phase)=>{
+   L=float(L);const k=float(2*Math.PI).div(L);
+   const om=sqrt(tanh(depth.mul(k)).mul(k).mul(G));
+   // short-crested: height wanders along each crest over a few wavelengths, so crests break into segments;
+   // a component fades out where the grid cannot carry it, and in very shallow water
+   const mod=V(vec2(dot(dir,p),dot(vec2(dir.y.negate(),dir.x),p).mul(1.8)).div(L.mul(4.5)),.37).mul(1.1).add(.45);
+   const amp=a.mul(mod).mul(smoothstep(spacing.mul(3.5),spacing.mul(7),L)).mul(smoothstep(.1,1.2,depth));
+   const th=dot(dir,p).mul(k).sub(om.mul(U.time)).add(phase);
+   const c=cos(th),s=sin(th);
+   dx=dx.add(dir.x.mul(amp.mul(steep).mul(c)));dz=dz.add(dir.y.mul(amp.mul(steep).mul(c)));
+   dy=dy.add(amp.mul(s));
+   sx=sx.add(dir.x.mul(amp.mul(k).mul(c)));sz=sz.add(dir.y.mul(amp.mul(k).mul(c)));
+  };
+  for(const w of SWELL)addWave(compass(w.h),w.l,U.swell.mul(w.a).mul(exposure),w.s,w.p);
+  for(const w of WIND){
+   const c=Math.cos(w.o*Math.PI/180),s=Math.sin(w.o*Math.PI/180);
+   addWave(vec2(wdir.x.mul(c).sub(wdir.y.mul(s)),wdir.x.mul(s).add(wdir.y.mul(c))),windStretch.mul(w.l),windAmp.mul(w.a).mul(sqrt(windStretch)).mul(open.mul(.85).add(.15)),w.s,w.p);
+  }
+  const sh=shoreAt(p,depth,dist,open,windAmp);
+  const cs=cos(sh.phS).mul(.5).add(.5),shapeS=pow(cs,3).mul(1.7).sub(.45);   // peaked crests, long flat troughs
+  const cs2=cos(sh.phS2).mul(.5).add(.5),shapeS2=pow(cs2,3).mul(1.7).sub(.45);
+  const yS=sh.Hs.mul(shapeS).mul(float(1).sub(sh.breaking.mul(.6))).add(sh.Hs2.mul(shapeS2).mul(float(1).sub(sh.breaking2.mul(.6)))).mul(sh.wS);
+  // slope of the shoreline layer, from the distance field's gradient
+  const e=8,gd=vec2(seaField(p.add(vec2(e,0))).y.sub(dist),seaField(p.add(vec2(0,e))).y.sub(dist)).div(e);
+  const dShape=pow(cs,2).mul(sin(sh.phS)).mul(-2.55).mul(6.2832/LS).mul(sh.shoal);
+  const dShape2=pow(cs2,2).mul(sin(sh.phS2)).mul(-2.55).mul(6.2832/LS2).mul(sh.shoal);
+  const sS=gd.mul(dShape.mul(sh.Hs).add(dShape2.mul(sh.Hs2))).mul(sh.wS);
+  const wD=float(1).sub(sh.wS.mul(.75));
+  // near the waterline the surface is lifted so the swash can run up the sand (see opacity)
+  const lift=float(SWASH).mul(smoothstep(1.5,0,depth));
+  return {offset:vec3(dx.mul(wD),dy.mul(wD).add(yS).add(lift),dz.mul(wD)),
+          normal:normalize(vec3(sx.mul(wD).add(sS.x).negate(),1,sz.mul(wD).add(sS.y).negate()))};
+ };
+ const p0=attribute('position','vec3').xz;
+ const s0=surfaceAt(p0);
+ const posW=vec3(p0.x,U.tide,p0.y).add(s0.offset);
  // ---------- fragment ----------
  const hash32=p=>{const p3=fract(vec3(p.x,p.y,p.x).mul(vec3(.1031,.1030,.0973))).toVar();p3.addAssign(dot(p3,p3.yxz.add(33.33)));return fract(p3.xxy.add(p3.yzz).mul(p3.zyx));};
  // reality-js glints: tiny cells with normally distributed slopes; a cell flashes
@@ -149,9 +152,9 @@ export function createSea({look}){
    const rough=open.mul(.8).add(.2).mul(U.windSpeed.div(8)).mul(smoothstep(.02,.6,depth).mul(.85).add(.15));
    const fade=float(1).sub(smoothstep(300,5000,range));
    const g=vec2(ax.sub(a0).div(ea).mul(.7).add(bx.sub(b0).div(.12).mul(.06)),az.sub(a0).div(ea).mul(.7).add(bz.sub(b0).div(.12).mul(.06))).mul(rough).mul(fade.mul(.7).add(.3));
-   // the surface's own slope, from screen-space derivatives of the displaced geometry
-   const nG=normalize(cross(dFdx(positionWorld),dFdy(positionWorld)).add(vec3(0,1e-7,0)));   // never a zero vector
-   const base=far?vec3(0,1,0):nG.mul(sign(nG.y));
+   // the exact slope of the wave surface at this pixel: smooth, no triangle facets
+   const nG=far?vec3(0,1,0):surfaceAt(p).normal;
+   const base=nG;
    const n=normalize(base.add(vec3(g.x.negate(),0,g.y.negate())));
    const ndv=max(dot(n,eye),0);
    const shadeS=cloudShade(positionWorld);

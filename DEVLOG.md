@@ -14,6 +14,7 @@
 - **One foam layer:** whitecaps and surf were drawn separately and added, which doubled the white. They now share one coverage and one lace pattern.
 - **Glints:** reality-js sparkles are stronger and spread wider through the sun path.
 - **Horizon specks:** clouds right at the horizon are faded out, because samples there are too far apart to resolve a cloud.
+- **No more triangle facets:** the wave displacement and its exact slope now come from one function. The vertex stage moves the grid with it; the pixel stage re-evaluates it for a smooth per-pixel normal, instead of the flat-per-triangle screen-space normal.
 
 
 ## 009: Whitewater and a busier sea (2026-10-02)
