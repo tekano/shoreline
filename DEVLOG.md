@@ -1,5 +1,27 @@
 # Devlog
 
+## 008: The sea becomes geometry (2026-10-02)
+
+At full tide the old sea read as a lake: one flat plane with waves painted on. `walney/sea.js` replaces it with real geometry, layered by distance.
+
+- **Surface:** a camera-centred grid, ~0.5 m apart at the camera and ~70 m at 5 km, out to 16 km, with a flat ring beyond.
+- **Open-water waves:** directional Gerstner waves.
+  - a long swell (36–64 m) arriving from the WSW, plus five wind-sea components around the wind direction;
+  - wind-sea amplitude grows with the square of the wind speed;
+  - finite-depth dispersion slows every component as the water shallows;
+  - each component fades out where the grid is too coarse to carry it, and the ripple normals take over.
+- **Shoreline wave layer:** waves run in along the real distance-to-waterline field, so they bend to follow the coast at any tide. They peak up, then spill once the depth falls to about 1.3 times their height and are fully broken by depth ≈ height.
+- **Fragment shading:**
+  - Beckmann sun glitter, with reality-js microfacet glints sparkling inside it (ported from our own Shoreline code);
+  - teal light through thin backlit crests;
+  - multi-scale whitewater on breaking fronts;
+  - whitecaps on crests in wind;
+  - the swash edge.
+- **Wind slider:** drives the sea chop, whitecaps and glitter roughness, and the grass.
+
+**Not there yet:** the shore break. From beach level, an arriving wave is a milky translucent wash rather than crisp tumbling whitewater, and the breaking line along the beach is faint from the raised view.
+
+
 ## 007: Atmosphere, volumetric cumulus, sun on the sea (2026-10-02)
 
 **Sky.** It's an approximate single-scattering atmosphere, not a full simulation:

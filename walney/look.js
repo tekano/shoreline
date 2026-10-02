@@ -9,7 +9,7 @@ import {Fn,uniform,float,vec2,vec3,vec4,color,texture,mix,smoothstep,max,min,abs
 export function createLook({noiseTex,far,near,tide,landcover}){
  const U={
   sun:uniform(new THREE.Vector3(0,1,0)),time:uniform(0),tide:uniform(tide),tint:uniform(1),
-  wind:uniform(new THREE.Vector2(.8,.6)),windSpeed:uniform(7),   // m/s, blowing toward +x/+z (onshore from the south-west)
+  wind:uniform(new THREE.Vector2(.87,-.5)),windSpeed:uniform(7),   // m/s; blowing toward the ENE (a south-westerly, onshore here)
   swell:uniform(.8),clouds:uniform(.5),haze:uniform(1),
   sunLight:uniform(new THREE.Vector3(3,3,3)),skyAmb:uniform(new THREE.Vector3(.2,.3,.5))   // scene-unit sun and skylight, set from the sun's height
  };
@@ -381,7 +381,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  // CPU twins for placing things: zone at a point from the far grid
  const fieldAt=(arr,x,z)=>{const i=Math.min(Math.max(Math.round((x-far.west)/far.res-.5),0),far.w-1),j=Math.min(Math.max(Math.round((z-far.north)/far.res-.5),0),far.hgt-1);return arr[j*far.w+i];};
  const hwDistAt=(x,z)=>fieldAt(hw,x,z)*far.res;
- return {U,sky,skyMaterial,ground,sea,updateSea,gust,cloudShade,F,V,hwDistAt,SWASH,fogNode,sunLightingFor};
+ return {U,sky,skyMaterial,ground,sea,updateSea,gust,cloudShade,F,V,hwDistAt,SWASH,fogNode,sunLightingFor,seaField,bedAt};
 }
 
 // CPU twin of the atmosphere, for the scene's lights: the sun's colour after

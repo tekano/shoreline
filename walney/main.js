@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 import {createLook,sunLightingFor} from './look.js';
 import {createGrass} from './grass.js';
 import {loadLandcover} from './landcover.js';
+import {createSea} from './sea.js';
 import {makeNoiseTexture} from '../src/noise.js?v=1.3.0';
 
 // Terrain blockout of a real place: LiDAR heights around a camera you place on
@@ -34,7 +35,7 @@ const height=(x,z)=>{const w=nearEdge(x,z);return w>0?sample(near,x,z)*w+sample(
 const DEFAULT={...meta.cameras.westshore,tide:-1.5,haze:1,sunaz:195,sunel:52,tint:1};
 const saved=read();
 const presets={...meta.cameras,...saved};
-const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,exposure:1,...DEFAULT,...(saved.__last||{})};
+const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,exposure:1,wind:7,...DEFAULT,...(saved.__last||{})};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
 
 // ---------- renderer ----------
@@ -58,8 +59,9 @@ const U=look.U;
 scene.fogNode=look.fogNode;   // aerial perspective coloured by the sky in each direction
 const ground=look.ground;
 const skyDome=new THREE.Mesh(new THREE.SphereGeometry(50000,48,24),look.skyMaterial);skyDome.frustumCulled=false;skyDome.renderOrder=-1;scene.add(skyDome);
-const water=new THREE.Mesh(new THREE.PlaneGeometry(200000,200000).rotateX(-Math.PI/2),look.sea);water.renderOrder=2;
-scene.add(water);
+// the sea: displaced wave geometry around the camera, a flat ring beyond it
+const sea=createSea({look});scene.add(sea.mesh,sea.farMesh);
+const water=sea.mesh;
 let seaTide=state.tide,seaTimer=0;
 
 // Camera-centred grid: about 1.5 m apart at the camera, ~100 m at Black Combe.
@@ -106,7 +108,7 @@ function apply(){
  camera.position.set(x,camY,z);
  camera.rotation.set(state.pitch*Math.PI/180,-state.heading*Math.PI/180,0,'YXZ');
  camera.fov=mm2fov(state.mm??fovToMm(state.fov));camera.updateProjectionMatrix();
- water.position.y=state.tide+look.SWASH;U.tide.value=state.tide;U.clouds.value=state.clouds;U.swell.value=state.swell;U.tint.value=+state.tint;skyDome.position.copy(camera.position);
+ sea.update(x,z,state.tide);U.tide.value=state.tide;U.windSpeed.value=state.wind;U.clouds.value=state.clouds;U.swell.value=state.swell;U.tint.value=+state.tint;skyDome.position.copy(camera.position);
  // the waterline field is rebuilt after the tide slider settles
  if(state.tide!==seaTide){clearTimeout(seaTimer);seaTimer=setTimeout(()=>{look.updateSea(state.tide);seaTide=state.tide;},120);}
  U.haze.value=state.haze;renderer.toneMappingExposure=state.exposure;
@@ -118,7 +120,8 @@ function apply(){
  U.sunLight.value.set(T[0]*3.4,T[1]*3.4,T[2]*3.4);U.skyAmb.value.set(...zen);
  sun.color.setRGB(T[0]/tm,T[1]/tm,T[2]/tm);sun.intensity=3.4*tm;
  hemi.color.setRGB(zen[0]/zm,zen[1]/zm,zen[2]/zm);hemi.intensity=Math.min(1.3,zm/.29*1.1)+.03;
- for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','exposure'])$(k).value=state[k];
+ for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','exposure','wind'])$(k).value=state[k];
+ $('wind-v').textContent=state.wind.toFixed(0);
  $('exposure-v').textContent=state.exposure.toFixed(2);
  $('clouds-v').textContent=Math.round(state.clouds*100)+'%';$('swell-v').textContent=state.swell.toFixed(2);
  $('motion').value=state.motion;$('panDeg-v').textContent=state.panDeg;$('panSecs-v').textContent=state.panSecs;
@@ -137,7 +140,7 @@ function fovToMm(v){return Math.round(24/(2*Math.tan(v*Math.PI/360)));}
 for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
 $('fov').oninput=e=>{state.mm=+e.target.value;apply();};
 $('tint').onchange=e=>{state.tint=+e.target.value;apply();};
-for(const k of ['panDeg','panSecs','clouds','swell','exposure'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
+for(const k of ['panDeg','panSecs','clouds','swell','exposure','wind'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
 $('motion').onchange=e=>{state.motion=e.target.value;panStart=performance.now()/1000;apply();};
 function fillPresets(){const all={...meta.cameras,...read()};delete all.__last;$('preset').innerHTML='<option value="">Choose a view…</option>'+Object.entries(all).map(([k,v])=>`<option value="${k}">${v.label||k}</option>`).join('');}
 fillPresets();
