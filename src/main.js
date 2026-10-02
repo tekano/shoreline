@@ -49,7 +49,7 @@ function bindUI(){
  window.addEventListener('keydown',e=>{if(isInterfaceEvent(e))return;if(e.code==='Space'){e.preventDefault();setPause(!paused);}if(e.code==='KeyH')toggleUI();if(e.code==='KeyC'){const keys=Object.keys(VIEWS);setView(keys[(keys.indexOf(navigation.view)+1)%keys.length]);}if(e.code==='Escape'){$('settings').hidden=$('help').hidden=true;}});
  $('interface').addEventListener('keydown',e=>{if(e.key==='Escape'&&e.target.tagName!=='SELECT'){const settings=!$('settings').hidden;$('settings').hidden=$('help').hidden=true;$('settings-toggle').setAttribute('aria-expanded','false');(settings?$('settings-toggle'):$('help-toggle')).focus();}e.stopPropagation();});$('interface').addEventListener('wheel',e=>e.stopPropagation(),{passive:true});$('interface').addEventListener('pointerdown',e=>e.stopPropagation());
  const keyMap={forward:'KeyW',back:'KeyS',left:'KeyA',right:'KeyD'};document.querySelectorAll('[data-move]').forEach(b=>{b.onpointerdown=e=>{e.preventDefault();b.setPointerCapture(e.pointerId);navigation.keys.add(keyMap[b.dataset.move]);navigation.transition=null;navigation.cinematic=false;};b.onpointerup=b.onpointercancel=()=>navigation.keys.delete(keyMap[b.dataset.move]);});
- window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+ window.addEventListener('resize',()=>{if(!hasSize())return;camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
 }
 async function init(){
  try{
@@ -71,6 +71,9 @@ async function init(){
    if(data.type==='ready'||data.type==='qa-frame'){if(pending)recyclePacket(pending);pending=null;installPacket(data,true);}
    else{if(pending)recyclePacket(pending);pending=data;return;}
    if(data.type==='ready'){
+    // A page opened in a zero-sized window (minimised, or a hidden embed) cannot
+    // create its swapchain; wait for a real size rather than failing for good.
+    await whenSized();
     camera.updateMatrixWorld();shaders.updateCamera(camera);$('loading-text').textContent='Resolving light and water';$('progress').style.width='92%';
     try{await renderer.compileAsync(scene,camera);renderer.render(scene,camera);diagnostics.ready=true;diagnostics.startupMilliseconds=performance.now()-bootAt;$('loading').hidden=true;last=performance.now();renderer.setAnimationLoop(frame);worker.postMessage({type:'pause',value:paused});}catch(e){fail(e);}
    }
@@ -103,7 +106,10 @@ function installPacket(data,initial=false){
  if(!initial)spray.arrival(data);
  for(const mesh of world.rocks){const r=mesh.userData.rock,level=sampleField(data.surface,r.x+r.rx*1.16,r.z);const old=mesh.userData.wetReach,reach=Math.max(old-.008*Math.max(0,simTime-previousTime),level+.07);mesh.userData.previousReach=old;mesh.userData.wetReach=reach;}
 }
+const hasSize=()=>innerWidth>0&&innerHeight>0;
+const whenSized=()=>new Promise(resolve=>{const check=()=>{if(!hasSize())return false;removeEventListener('resize',check);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);resolve();return true;};if(!check())addEventListener('resize',check);});
 function frame(now){
+ if(!hasSize()){last=now;return;}
  const frameStart=performance.now();
  const actualMs=now-last,dt=Math.min(.06,actualMs/1000);last=now;
  if(!paused){
