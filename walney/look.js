@@ -153,9 +153,14 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   const d=normalize(dir).toVar();
   const c=atmosphere(d).toVar();
   c.assign(mix(c,U.sunLight.mul(.08).add(U.skyAmb.mul(.8)),cirrus(d)));
-  const t=float(CB+400).sub(cameraPosition.y).div(max(d.y,.02));
-  const dens=cloudDensity(cameraPosition.xz.add(d.xz.mul(t))).mul(smoothstep(0,.05,d.y));
-  const cloudC=U.sunLight.mul(.22).add(U.skyAmb.mul(.7));
+  const t=float(CB+400).sub(cameraPosition.y).div(max(d.y,.02)),at=cameraPosition.xz.add(d.xz.mul(t));
+  // lit as the ray-marched clouds are (same sun phase, shadow from the cloud toward the sun,
+  // skylight), and fading into the haze with distance the same way, so reflections match the sky
+  const s=normalize(U.sun),cs=dot(d,s);
+  const sunT=exp(cloudDensity(at.add(s.xz.mul(260))).mul(-1.8));
+  const cloudC=U.sunLight.mul(sunT).mul(mix(hg(cs,.6),hg(cs,-.25),.35).mul(9).add(.8)).mul(.8*.26).add(U.skyAmb.mul(.77));
+  const far=float(1).sub(exp(t.mul(-1/30000).mul(U.haze.add(.3))));
+  const dens=cloudDensity(at).mul(smoothstep(.025,.07,d.y)).mul(float(1).sub(far));
   c.assign(mix(c,cloudC,dens.mul(.9)));
   return c;
  });
