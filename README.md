@@ -2,6 +2,8 @@
 
 Realtime breaking waves on a beach, in the browser. three.js on WebGPU, with a WebGL 2 fallback.
 
+**Live demo: https://tekano.github.io/shoreline/**
+
 Shoreline combines the best parts of two open-source projects and then builds on them:
 
 - the **water physics** from [Saltreach](https://github.com/iamtechartist/coastal-simulation) by Techartist: a shallow-water solver where waves bend over the seabed, wrap around rocks and run up the sand, with foam carried along by the flow;
