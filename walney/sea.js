@@ -196,11 +196,12 @@ export function createSea({look}){
    const sig2=float(.0012).add(rough.mul(.012));
    const D=exp(float(1).sub(nh2).div(nh2).div(sig2).negate()).div(sig2.mul(3.1416).mul(nh2).mul(nh2));
    const Fh=float(.02).add(pow(float(1).sub(max(dot(hS,eye),0)),5).mul(.98));
-   col.addAssign(U.sunLight.mul(min(D.mul(Fh).div(max(ndv,.15).mul(4)),60)).mul(shadeS).mul(min(max(U.sun.y,0).mul(4),1)));
+   const clearSky=pow(float(1).sub(U.overcast),2);   // glitter needs a sun to glitter in
+   col.addAssign(U.sunLight.mul(min(D.mul(Fh).div(max(ndv,.15).mul(4)),60)).mul(shadeS).mul(min(max(U.sun.y,0).mul(4),1)).mul(clearSky).mul(.5));
    // ...and individual glints sparkling in it, as in reality-js
    const need=vec2(hS.x.div(hS.y),hS.z.div(hS.y)).sub(vec2(n.x.div(n.y),n.z.div(n.y))).negate();
    const gl=glints(p,need,fw,sqrt(sig2.mul(2.5)).add(.04),float(1.1));
-   col.addAssign(U.sunLight.mul(gl.mul(55)).mul(float(1).sub(foam)).mul(shadeS).mul(smoothstep(0,.06,U.sun.y)).mul(mix(.35,2.4,smoothstep(6,80,range))));
+   col.addAssign(U.sunLight.mul(gl.mul(27)).mul(float(1).sub(foam)).mul(shadeS).mul(clearSky).mul(smoothstep(0,.06,U.sun.y)).mul(mix(.35,2.4,smoothstep(6,80,range))));
    const foamLit=vec3(.93).mul(U.sunLight.mul(max(U.sun.y,0)).mul(shadeS).mul(.3).add(U.skyAmb.mul(1.3)));
    col.assign(mix(col,foamLit,foam));
    // debug view: red = foam coverage, green = breaking, blue = position in the wave cycle

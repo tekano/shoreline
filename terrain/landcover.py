@@ -92,7 +92,8 @@ class Collect(osmium.SimpleHandler):
         self.areas, self.lines, self.fences, self.turbines = [], [], [], []
 
     def area(self, a):
-        cls = area_class({t.k: t.v for t in a.tags})
+        tags = {t.k: t.v for t in a.tags}
+        cls = area_class(tags)
         if not cls:
             return
         try:
@@ -101,7 +102,7 @@ class Collect(osmium.SimpleHandler):
                 if not any(inside(*p) for p in ring[::max(1, len(ring) // 16)]):
                     continue
                 holes = [[(n.lon, n.lat) for n in inner] for inner in a.inner_rings(outer)]
-                self.areas.append((cls, ring, holes))
+                self.areas.append((cls, ring, holes, tags if cls == 'building' else None))
         except osmium.InvalidLocationError:
             pass
 
@@ -124,9 +125,9 @@ class Collect(osmium.SimpleHandler):
 
     def node(self, n):
         t = n.tags
-        if t.get('generator:source') == 'wind' or t.get('power') == 'generator' and t.get('generator:source') == 'wind':
+        if t.get('generator:source') == 'wind':
             if inside(n.location.lon, n.location.lat):
-                self.turbines.append((n.location.lon, n.location.lat))
+                self.turbines.append((n.location.lon, n.location.lat, t.get('height'), t.get('rotor:diameter')))
 
 
 def project(pts):
@@ -143,7 +144,7 @@ def raster(meta_layer, origin, res, data):
     draw = ImageDraw.Draw(img)
     to_px = lambda en: [((e - west) / res, (north - n) / res) for e, n in en]
     by_class = {}
-    for cls, ring, holes in data.areas:
+    for cls, ring, holes, _ in data.areas:
         by_class.setdefault(cls, []).append((ring, holes))
     for cls in PAINT_ORDER:
         for ring, holes in by_class.get(cls, []):
@@ -173,7 +174,7 @@ def main():
     h.apply_file(PBF, locations=True)
     print(f'{len(h.areas)} areas, {len(h.lines)} roads/tracks/paths, {len(h.fences)} fences, {len(h.turbines)} turbines')
     # project everything once
-    h.areas = [(c, project(r), [project(x) for x in holes if len(x) >= 3]) for c, r, holes in h.areas]
+    h.areas = [(c, project(r), [project(x) for x in holes if len(x) >= 3], tg) for c, r, holes, tg in h.areas]
     h.lines = [(c, project(p)) for c, p in h.lines]
     origin = meta['origin_osgb']
     for name, layer, res in (('near', meta['near'], meta['near']['res']), ('far', meta['far'], meta['far']['res'])):
@@ -185,20 +186,48 @@ def main():
 
     def local(en):
         return [[round(e - origin[0], 1), round(-(n - origin[1]), 1)] for e, n in en]
+    def num(v):
+        try:
+            return float(str(v).split()[0].replace('m', ''))
+        except (TypeError, ValueError):
+            return None
+    HUTS = {'hut', 'shed', 'cabin', 'beach_hut', 'garage', 'garages', 'boathouse', 'kiosk'}
+    INDUSTRY = {'industrial', 'warehouse', 'commercial', 'retail', 'factory', 'hangar', 'manufacture', 'storage_tank'}
+    near = meta['near']
+    nx0, nz0 = near['west'], near['north']
+    nx1, nz1 = nx0 + near['size'][0] * near['res'], nz0 + near['size'][1] * near['res']
+    buildings = []
+    for c, ring, _, tg in h.areas:
+        if c != 'building':
+            continue
+        pts = local(ring)
+        xs = [p[0] for p in pts]; zs = [p[1] for p in pts]
+        if max(xs) < nx0 or min(xs) > nx1 or max(zs) < nz0 or min(zs) > nz1:
+            continue
+        area = abs(sum(pts[k][0] * pts[k - 1][1] - pts[k - 1][0] * pts[k][1] for k in range(len(pts)))) / 2
+        btype = tg.get('building', 'yes')
+        kind = 'hut' if btype in HUTS or area < 22 else 'industry' if btype in INDUSTRY or area > 900 else 'house'
+        levels = num(tg.get('building:levels'))
+        height = num(tg.get('height')) or (levels * 3 + 1.5 if levels else None)
+        if not height or height < 2:
+            height = {'hut': 2.6, 'industry': 10.0, 'house': 7.0}[kind]
+        if pts[0] == pts[-1]:
+            pts = pts[:-1]
+        buildings.append({'p': [[round(x, 1), round(z, 1)] for x, z in pts], 'h': round(height, 1), 'k': kind})
+    turbines = []
+    if h.turbines:
+        en = project([(lo, la) for lo, la, *_ in h.turbines])
+        for (e, n), (_, _, ht, rd) in zip(en, h.turbines):
+            turbines.append({'pos': local([(e, n)])[0], 'h': num(ht), 'rotor': num(rd)})
     feats = {
-        'buildings': [], 'turbines': local(project(h.turbines)) if h.turbines else [],
+        'buildings': buildings, 'turbines': turbines,
         'fences': [{'type': t, 'line': local(project(p))} for t, p in h.fences],
         'attribution': '© OpenStreetMap contributors (ODbL)'
     }
-    for c, ring, _ in h.areas:
-        if c == 'building':
-            mn, mx = ring.min(0), ring.max(0)
-            cx, cy = (mn + mx) / 2
-            feats['buildings'].append({'pos': local([(cx, cy)])[0], 'size': [round(float(mx[0] - mn[0]), 1), round(float(mx[1] - mn[1]), 1)]})
     json.dump(feats, open(os.path.join(WEB, 'features.json'), 'w'))
     meta['landcover'] = {'classes': CLASSES, 'attribution': feats['attribution']}
     json.dump(meta, open(os.path.join(WEB, 'meta.json'), 'w'), indent=1)
-    print(f"features: {len(feats['buildings'])} buildings, {len(feats['fences'])} fences, {len(feats['turbines'])} turbines")
+    print(f"features: {len(feats['buildings'])} building footprints, {len(feats['fences'])} fences, {len(feats['turbines'])} turbines")
 
 
 if __name__ == '__main__':

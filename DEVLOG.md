@@ -1,5 +1,23 @@
 # Devlog
 
+## 011: A real sky clock, night and stars, buildings and turbines (2026-10-02)
+
+- **Overcast means no sun:** the sun's disc fades out behind a deck, and glitter and glints fade with the overcast and dim under cloud shadow. Overall glitter is half what it was.
+- **Sky clock** (`walney/sky-clock.js`): Date and Time controls place the sun on its real path for Walney, using low-precision almanac formulae and allowing for BST. Checked against known values: 59.3° due south at midsummer noon, 12.4° at midwinter noon, sunset in the north-west at about 21:30 in June, Polaris due north at 54.5°. The sun can now sink to −18°, and the scene goes to real night instead of grey.
+- **Stars:**
+  - ~75 of the brightest stars that rise over Walney, at their true J2000 positions for the clock's date and time, each twinkling on its own. The Plough, Cassiopeia, Orion and the summer triangle sit where they should;
+  - thousands of faint fill stars (random, but turning with the real sky via a scene-to-celestial matrix);
+  - a faint Milky Way along its true galactic plane.
+
+  They come out as the sun sinks below about −2°, and hide behind cloud, overcast and horizon haze.
+- **Buildings:** 13,390 OpenStreetMap footprints in the detail zone, extruded on the LiDAR ground. Height comes from tags (`height`, `building:levels`) or a default by type:
+  - houses: render walls with slate roofs;
+  - huts and sheds: black, like the Roanhead huts;
+  - industry: grey cladding.
+- **Wind turbines:** the 20 mapped turbines (Haverigg and around) face into the wind and spin from cut-in at 3 m/s up to ~16 rpm. OSM has no sizes for them, so a 50 m hub and 44 m rotor are assumed.
+- **Bug:** a 3-axis sign slip in the scene-to-celestial matrix put Vega in the wrong place. Caught by checking three stars against their catalogue vectors.
+
+
 ## 010: Grey days, wind that builds the sea, one foam layer (2026-10-02)
 
 - **Overcast:** the Irish Sea is grey more often than not, and nothing could make a grey day before. The new Overcast control:

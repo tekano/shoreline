@@ -35,7 +35,7 @@ pip install osmium
 python terrain/landcover.py         # walney/data/landcover_near.png, landcover_far.png, features.json
 ```
 
-Classes (sand, shingle, dune, saltmarsh, tidal flat, fields, woods, roads, tracks, buildings…) paint the ground and decide what grass grows where. `features.json` holds building footprints, fence lines and wind turbines for cards and props.
+Classes (sand, shingle, dune, saltmarsh, tidal flat, fields, woods, roads, tracks, buildings…) paint the ground and decide what grass grows where. `features.json` holds building footprints (with heights and a house / hut / industry kind), fence lines and wind turbines; `structures.js` extrudes the buildings and builds the turbines.
 
 ## Attribution
 

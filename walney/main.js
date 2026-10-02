@@ -3,6 +3,8 @@ import {createLook,sunLightingFor} from './look.js';
 import {createGrass} from './grass.js';
 import {loadLandcover} from './landcover.js';
 import {createSea} from './sea.js';
+import {skyAt} from './sky-clock.js';
+import {createStructures} from './structures.js';
 import {makeNoiseTexture} from '../src/noise.js?v=1.3.0';
 
 // Terrain blockout of a real place: LiDAR heights around a camera you place on
@@ -35,7 +37,7 @@ const height=(x,z)=>{const w=nearEdge(x,z);return w>0?sample(near,x,z)*w+sample(
 const DEFAULT={...meta.cameras.westshore,tide:-1.5,haze:1,sunaz:195,sunel:52,tint:1};
 const saved=read();
 const presets={...meta.cameras,...saved};
-const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,exposure:1,wind:7,overcast:0,...DEFAULT,...(saved.__last||{})};
+const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,exposure:1,wind:7,overcast:0,day:191,time:11.5,...DEFAULT,...(saved.__last||{})};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
 
 // ---------- renderer ----------
@@ -90,6 +92,9 @@ function zone(x,z){
  return [slope>1.1?0:h<6?.5:1,0];
 }
 const grass=createGrass({look,height,zone});scene.add(grass.mesh);
+// buildings and wind turbines from OpenStreetMap
+const features=await (await fetch('./data/features.json')).json();
+const structures=createStructures({features,height,look});scene.add(structures.group);
 let grassAt=null;
 function buildTerrain(cx,cz){
  // snap to the far layer's grid so rebuilding does not make the hills crawl
@@ -123,7 +128,11 @@ function apply(){
  U.sunLight.value.set(T[0]*3.4*direct,T[1]*3.4*direct,T[2]*3.4*direct);U.skyAmb.value.set(...amb);U.overcast.value=ov;
  sun.color.setRGB(T[0]/tm,T[1]/tm,T[2]/tm);sun.intensity=3.4*tm*direct;
  hemi.color.setRGB(amb[0]/zm,amb[1]/zm,amb[2]/zm);hemi.intensity=(Math.min(1.3,zm/.29*1.1)+.03)*(1+ov*.9);
- for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','exposure','wind','overcast'])$(k).value=state[k];
+ for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','exposure','wind','overcast','day','time'])$(k).value=state[k];
+ const md=new Date(Date.UTC(2026,0,state.day));$('day-v').textContent=md.toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
+ $('time-v').textContent=`${String(Math.floor(state.time)).padStart(2,'0')}:${String(Math.round(state.time%1*60)%60).padStart(2,'0')}`;
+ // stars follow the clock
+ const sk=skyAt(2026,state.day,state.time);sk.stars.forEach((st,i)=>U.stars.array[i].set(...st));U.toCel.value.set(...sk.toCel.flat());
  $('overcast-v').textContent=Math.round(state.overcast*100)+'%';
  $('wind-v').textContent=state.wind.toFixed(0);
  $('exposure-v').textContent=state.exposure.toFixed(2);
@@ -144,6 +153,8 @@ function fovToMm(v){return Math.round(24/(2*Math.tan(v*Math.PI/360)));}
 for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
 $('fov').oninput=e=>{state.mm=+e.target.value;apply();};
 $('tint').onchange=e=>{state.tint=+e.target.value;apply();};
+// the clock moves the sun along its real path for Walney
+for(const k of ['day','time'])$(k).oninput=e=>{state[k]=+e.target.value;const sk=skyAt(2026,state.day,state.time);state.sunaz=Math.round(sk.sunAz);state.sunel=Math.round(sk.sunEl*4)/4;apply();};
 for(const k of ['panDeg','panSecs','clouds','swell','exposure','wind','overcast'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
 $('motion').onchange=e=>{state.motion=e.target.value;panStart=performance.now()/1000;apply();};
 function fillPresets(){const all={...meta.cameras,...read()};delete all.__last;$('preset').innerHTML='<option value="">Choose a view…</option>'+Object.entries(all).map(([k,v])=>`<option value="${k}">${v.label||k}</option>`).join('');}
@@ -211,8 +222,9 @@ function panHeading(now){
  if(state.motion==='right'||state.motion==='left')return state.heading+(state.motion==='right'?1:-1)*state.panDeg*t/state.panSecs;
  return state.heading;
 }
-renderer.setAnimationLoop(t=>{U.time.value=t/1000;
+let lastT=0;
+renderer.setAnimationLoop(t=>{const dt=Math.min(.1,(t-lastT)/1000);lastT=t;U.time.value=t/1000;structures.update(dt,U.wind.value,U.windSpeed.value);
  if(state.motion!=='locked'&&!aim)camera.rotation.set(state.pitch*Math.PI/180,-panHeading(t/1000)*Math.PI/180,0,'YXZ');const r=view.getBoundingClientRect();if(r.width&&r.height)renderer.render(scene,camera);});
 // dev: render one frame and save it through tools/serve.py (captures/, git-ignored)
 async function capture(name='walney.png'){renderer.render(scene,camera);const blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/png'));await fetch(`/__capture?name=${encodeURIComponent(name)}`,{method:'POST',body:blob});return name;}
-window.walney={state,apply,height,meta,capture,grass,look,scene,water,terrain};
+window.walney={state,apply,height,meta,capture,grass,look,scene,water,terrain,structures};

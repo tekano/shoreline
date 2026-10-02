@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
-import {Fn,uniform,float,vec2,vec3,vec4,color,texture,mix,smoothstep,max,min,abs,pow,dot,normalize,reflect,clamp,cos,sin,acos,exp,fract,floor,step,length,fog,screenUV,screenCoordinate,
+import {STARS} from './sky-clock.js';
+import {Fn,uniform,float,vec2,vec3,vec4,color,texture,mix,smoothstep,max,min,abs,pow,dot,normalize,reflect,clamp,cos,sin,acos,exp,fract,floor,step,length,fog,screenUV,screenCoordinate,uniformArray,
  positionWorld,normalWorld,cameraPosition,reflectVector,bumpMap} from 'three/tsl';
 
 // The look of the Walney scene, matched to photos of the place: summer sky
@@ -12,6 +13,8 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   wind:uniform(new THREE.Vector2(.87,-.5)),windSpeed:uniform(7),   // m/s; blowing toward the ENE (a south-westerly, onshore here)
   swell:uniform(.8),clouds:uniform(.5),haze:uniform(1),
   debug:uniform(0),overcast:uniform(0),
+  stars:uniformArray(STARS.map(()=>new THREE.Vector4(0,-1,0,0)),'vec4'),   // scene direction + brightness, set by the sky clock
+  toCel:uniform(new THREE.Matrix3()),                                          // scene direction -> celestial frame, set by the sky clock
   sunLight:uniform(new THREE.Vector3(3,3,3)),skyAmb:uniform(new THREE.Vector3(.2,.3,.5))   // scene-unit sun and skylight, set from the sun's height
  };
  const noise=uv=>texture(noiseTex,uv);
@@ -48,12 +51,12 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   const d=normalize(dir).toVar(),s=normalize(U.sun);
   const c=dot(d,s);
   // looking up, you see light scattered high in the air, which crossed less of it: bluer overhead at sunset
-  const ts=sunTrans(s.y.add(max(d.y,0).mul(.45)).add(.01));
+  const ts=sunTrans(s.y.add(max(d.y,0).mul(.45).mul(smoothstep(-.04,.08,s.y))).add(.01));   // (only while the sun is up)
   const phaseR=float(1).add(c.mul(c)).mul(.0597),phaseM=hg(c,.76);
   const tauV=BR.add(BM).mul(airMass(max(d.y,0)));
   const scatter=BR.mul(phaseR).add(BM.mul(phaseM)).div(BR.add(BM));
   const col=ts.mul(scatter).mul(float(1).sub(exp(tauV.negate()))).mul(ESUN).toVar();
-  col.addAssign(ts.mul(ESUN*3).mul(smoothstep(.99994,.99998,c)).mul(step(0,d.y)));   // the sun's disc
+  col.addAssign(ts.mul(ESUN*3).mul(smoothstep(.99994,.99998,c)).mul(step(0,d.y)).mul(pow(float(1).sub(U.overcast),3)));   // the sun's disc, gone behind a deck
   col.addAssign(vec3(.002,.003,.007));                                                   // night floor
   // overcast: a grey stratus deck, brightest overhead, hides the blue and the sun's disc
   const day=smoothstep(-.05,.35,s.y).mul(.85).add(smoothstep(-.1,0,s.y).mul(.15));
@@ -142,7 +145,22 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   c.assign(mix(c,U.sunLight.mul(.55).add(U.skyAmb.mul(1.5)),cirrus(d)));
   const cl=cloudMarch(d);
   // cumulus sink into the deck as it thickens, leaving darker shapes in the grey
-  const withClouds=c.mul(cl.w).add(cl.xyz).add(c.mul(float(1).sub(cl.w)).mul(U.overcast.mul(.8)));   // under the deck, cloud takes the deck's grey light
+  const withClouds=c.mul(cl.w).add(cl.xyz).add(c.mul(float(1).sub(cl.w)).mul(U.overcast.mul(.8))).toVar();   // under the deck, cloud takes the deck's grey light
+  // the bright stars at their real places for the clock's date and time; they come
+  // out as the sun sinks below about -2 deg, and hide behind cloud, deck and horizon haze
+  const night=smoothstep(-.03,-.14,normalize(U.sun).y).mul(pow(float(1).sub(U.overcast),2)).mul(cl.w).mul(smoothstep(.0,.14,d.y));
+  const starLight=float(0).toVar();
+  for(let i=0;i<STARS.length;i++){const e=U.stars.element(i);const tw=sin(U.time.mul(5+i%7).add(i*2.3)).mul(.15).add(.85);starLight.addAssign(e.w.mul(tw).mul(exp(dot(d,e.xyz).sub(1).div(1.4e-6))));}
+  withClouds.addAssign(vec3(1,.96,.9).mul(starLight).mul(night).mul(9));
+  // thousands of faint fill stars (random, but turning with the real sky) and the
+  // Milky Way along its true path, both in the celestial frame
+  const cel=U.toCel.mul(d);
+  const q=cel.mul(420),cell=floor(q),h3=fract(sin(vec3(dot(cell,vec3(127.1,311.7,74.7)),dot(cell,vec3(269.5,183.3,246.1)),dot(cell,vec3(113.5,271.9,124.6)))).mul(43758.5453));
+  const off=fract(q).sub(h3.mul(.7).add(.15));
+  const fill=step(.86,h3.x).mul(exp(dot(off,off).div(-.012))).mul(pow(h3.y,6).mul(.5).add(.03));
+  const gp=vec3(-.8676,-.1981,.456),gc=vec3(-.055,-.8734,-.4839);
+  const band=exp(pow(dot(cel,gp),2).div(-.016)).mul(dot(cel,gc).mul(.5).add(.6)).mul(F(cel.xy.mul(26).add(cel.z.mul(11)),.4).mul(.8).add(.4));
+  withClouds.addAssign(vec3(1,.97,.92).mul(fill.mul(2.2).add(band.mul(.035))).mul(night));
   return withClouds.mul(step(0,d.y)).add(atmosphere(vec3(d.x,.0,d.z)).mul(step(d.y,0)));
  });
  const skyMaterial=new THREE.MeshBasicNodeMaterial({side:THREE.BackSide,depthWrite:false,fog:false});
