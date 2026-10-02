@@ -39,7 +39,9 @@ const height=(x,z)=>{const w=nearEdge(x,z);return w>0?sample(near,x,z)*w+sample(
 const DEFAULT={...meta.cameras.westshore,tide:-1.5,haze:1,sunaz:195,sunel:52,tint:1};
 const saved=read();
 const presets={...meta.cameras,...saved};
-const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,exposure:1,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1.3,saturation:1,blacks:.008,skyGain:.8,...DEFAULT,...(saved.__last||{})};
+export const VERSION='0.3.0';   // bump with each release; shown in the panel title
+document.title=`Walney ${VERSION}`;$('version').textContent=`v${VERSION}`;
+const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1.3,saturation:1,blacks:.008,skyGain:.8,...DEFAULT,...(saved.__last||{})};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
 
 // ---------- renderer ----------
@@ -149,7 +151,7 @@ function apply(){
  sea.update(x,z,state.tide);U.tide.value=state.tide;U.windSpeed.value=state.wind;U.clouds.value=state.clouds;U.swell.value=state.swell;U.tint.value=+state.tint;skyDome.position.copy(camera.position);
  // the waterline field is rebuilt after the tide slider settles
  if(state.tide!==seaTide){clearTimeout(seaTimer);seaTimer=setTimeout(()=>{look.updateSea(state.tide);seaTide=state.tide;},120);}
- U.haze.value=state.haze;renderer.toneMappingExposure=state.exposure;
+ U.haze.value=state.haze;renderer.toneMappingExposure=2**state.ev;   // exposure in stops, as on a camera
  const az=state.sunaz*Math.PI/180,el=state.sunel*Math.PI/180;
  sun.position.set(x+Math.sin(az)*Math.cos(el)*5000,camY+Math.sin(el)*5000,z-Math.cos(az)*Math.cos(el)*5000);sun.target.position.set(x,camY,z);
  U.sun.value.set(Math.sin(az)*Math.cos(el),Math.sin(el),-Math.cos(az)*Math.cos(el));
@@ -162,7 +164,7 @@ function apply(){
  sun.color.setRGB(T[0]/tm,T[1]/tm,T[2]/tm);sun.intensity=3.4*tm*direct;
  hemi.color.setRGB(amb[0]/zm,amb[1]/zm,amb[2]/zm);hemi.intensity=(Math.min(.75,zm/.29*.62)+.02)*(1+ov*.25);   // sun-led light: modest fill, darker overcast days
  U.skyGain.value=state.skyGain;G.contrast.value=state.contrast;G.saturation.value=state.saturation;G.blacks.value=state.blacks;
- for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','exposure','wind','overcast','day','time','waveScale','contrast','saturation','blacks','skyGain'])$(k).value=state[k];
+ for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','ev','wind','overcast','day','time','waveScale','contrast','saturation','blacks','skyGain'])$(k).value=state[k];
  $('skyGain-v').textContent=state.skyGain.toFixed(2);
  $('contrast-v').textContent=state.contrast.toFixed(2);$('saturation-v').textContent=state.saturation.toFixed(2);$('blacks-v').textContent=state.blacks.toFixed(3);
  $('waveScale-v').textContent=state.waveScale.toFixed(2);
@@ -172,7 +174,7 @@ function apply(){
  const sk=skyAt(2026,state.day,state.time);sk.stars.forEach((st,i)=>U.stars.array[i].set(...st));U.toCel.value.set(...sk.toCel.flat());
  $('overcast-v').textContent=Math.round(state.overcast*100)+'%';
  $('wind-v').textContent=state.wind.toFixed(0);
- $('exposure-v').textContent=state.exposure.toFixed(2);
+ $('ev-v').textContent=(state.ev>=0?'+':'')+state.ev.toFixed(1)+' EV';
  $('clouds-v').textContent=Math.round(state.clouds*100)+'%';$('swell-v').textContent=state.swell.toFixed(2);
  $('motion').value=state.motion;$('panDeg-v').textContent=state.panDeg;$('panSecs-v').textContent=state.panSecs;
  $('fov').value=state.mm??fovToMm(state.fov);$('tint').value=state.tint;
@@ -192,7 +194,7 @@ $('fov').oninput=e=>{state.mm=+e.target.value;apply();};
 $('tint').onchange=e=>{state.tint=+e.target.value;apply();};
 // the clock moves the sun along its real path for Walney
 for(const k of ['day','time'])$(k).oninput=e=>{state[k]=+e.target.value;const sk=skyAt(2026,state.day,state.time);state.sunaz=Math.round(sk.sunAz);state.sunel=Math.round(sk.sunEl*4)/4;apply();};
-for(const k of ['panDeg','panSecs','clouds','swell','exposure','wind','overcast','waveScale','contrast','saturation','blacks','skyGain'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
+for(const k of ['panDeg','panSecs','clouds','swell','ev','wind','overcast','waveScale','contrast','saturation','blacks','skyGain'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
 $('motion').onchange=e=>{state.motion=e.target.value;panStart=performance.now()/1000;apply();};
 function fillPresets(){const all={...meta.cameras,...read()};delete all.__last;$('preset').innerHTML='<option value="">Choose a view…</option>'+Object.entries(all).map(([k,v])=>`<option value="${k}">${v.label||k}</option>`).join('');}
 fillPresets();
