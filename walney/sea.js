@@ -17,10 +17,10 @@ const G=9.81;
 // compass direction of travel: swell arrives from the WSW, heading ENE
 const SWELL=[{l:64,a:.34,h:72,s:.55,p:0},{l:48,a:.22,h:58,s:.5,p:1.7},{l:36,a:.13,h:84,s:.45,p:4.1}];
 // wind sea: offsets from the wind's heading, amplitude grows with wind speed
-const WIND=[{l:17,a:.06,o:0,s:.6,p:.3},{l:11,a:.042,o:28,s:.6,p:2.2},{l:7.4,a:.028,o:-32,s:.55,p:5.1},{l:4.8,a:.016,o:14,s:.5,p:1.1},{l:3.2,a:.009,o:-20,s:.45,p:3.3},{l:2.2,a:.0055,o:35,s:.4,p:.8},{l:1.5,a:.0035,o:-8,s:.35,p:4.4}];
+const WIND=[{l:17,a:.05,o:0,s:.6,p:.3},{l:11,a:.04,o:48,s:.6,p:2.2},{l:7.4,a:.03,o:-55,s:.55,p:5.1},{l:5.6,a:.022,o:25,s:.5,p:1.1},{l:4.1,a:.016,o:-70,s:.5,p:3.3},{l:3,a:.011,o:80,s:.45,p:.8},{l:2.1,a:.007,o:-35,s:.4,p:4.4},{l:1.5,a:.0045,o:60,s:.35,p:2.9}];
 
 export function createSea({look}){
- const {U,F,V,sky,cloudShade,seaField,bedAt,SWASH}=look;
+ const {U,F,V,sky,cloudShade,seaField,bedAt,SWASH,exposureAt}=look;
  const tanh=x=>{const t=exp(x.mul(-2));return float(1).sub(t).div(float(1).add(t));};   // x >= 0 here
  const compass=h=>vec2(Math.sin(h*Math.PI/180),-Math.cos(h*Math.PI/180));   // x east, z south
 
@@ -35,10 +35,10 @@ export function createSea({look}){
   const shoal=float(1).add(float(1).sub(smoothstep(.3,6,depth)).mul(.8));
   const exposure=open.mul(.8).add(.2);
   const segMod=F(p.mul(.006),1.7).mul(.9).add(.55);                      // some stretches of beach get bigger sets
-  const Hs=U.swell.mul(.55).add(windAmp.mul(.15)).mul(exposure.mul(.7).add(.3)).mul(smoothstep(.02,.35,depth)).mul(segMod);
+  const Hs=U.swell.mul(.55).add(windAmp.mul(.15)).mul(pow(exposureAt(p),2).mul(.92).add(.08)).mul(U.waveScale).mul(smoothstep(.02,.35,depth)).mul(segMod);
   const Hs2=Hs.mul(.5);
-  const phS=dist.div(LS).mul(shoal).mul(6.2832).add(U.time.mul(1.1)).add(along);
-  const phS2=dist.div(LS2).mul(shoal).mul(6.2832).add(U.time.mul(1.37)).add(along.mul(.8)).add(2.6);
+  const phS=dist.div(U.waveScale.mul(LS)).mul(shoal).mul(6.2832).add(U.time.mul(1.1)).add(along);
+  const phS2=dist.div(U.waveScale.mul(LS2)).mul(shoal).mul(6.2832).add(U.time.mul(1.37)).add(along.mul(.8)).add(2.6);
   // a flat beach: waves start spilling well out and stay broken all the way in
   const breaking=smoothstep(max(Hs.mul(4.2),.7),Hs.mul(1.4),depth);
   const breaking2=smoothstep(max(Hs2.mul(4.2),.5),Hs2.mul(1.4),depth);
@@ -55,13 +55,14 @@ export function createSea({look}){
   // more wind builds longer waves, and longer waves travel faster (c = sqrt(g L / 2pi)),
   // so the sea speeds up with the wind as well as getting rougher
   const windStretch=pow(max(U.windSpeed.div(8),.3),1.4);
+  const ws=U.waveScale;   // overall size of the sea's waves: length and height together
   let dx=float(0),dz=float(0),dy=float(0),sx=float(0),sz=float(0);
   const addWave=(dir,L,a,steep,phase)=>{
-   L=float(L);const k=float(2*Math.PI).div(L);
+   L=float(L).mul(ws);const k=float(2*Math.PI).div(L);a=a.mul(ws);
    const om=sqrt(tanh(depth.mul(k)).mul(k).mul(G));
    // short-crested: height wanders along each crest over a few wavelengths, so crests break into segments;
    // a component fades out where the grid cannot carry it, and in very shallow water
-   const mod=V(vec2(dot(dir,p),dot(vec2(dir.y.negate(),dir.x),p).mul(1.8)).div(L.mul(4.5)),.37).mul(1.1).add(.45);
+   const mod=smoothstep(.25,.75,V(vec2(dot(dir,p),dot(vec2(dir.y.negate(),dir.x),p).mul(2.6)).div(L.mul(2.2)),.37)).mul(1.7).add(.15);
    const amp=a.mul(mod).mul(smoothstep(spacing.mul(3.5),spacing.mul(7),L)).mul(smoothstep(.1,1.2,depth));
    const th=dot(dir,p).mul(k).sub(om.mul(U.time)).add(phase);
    const c=cos(th),s=sin(th);
@@ -69,7 +70,8 @@ export function createSea({look}){
    dy=dy.add(amp.mul(s));
    sx=sx.add(dir.x.mul(amp.mul(k).mul(c)));sz=sz.add(dir.y.mul(amp.mul(k).mul(c)));
   };
-  for(const w of SWELL)addWave(compass(w.h),w.l,U.swell.mul(w.a).mul(exposure),w.s,w.p);
+  const sea=exposureAt(p);
+  for(const w of SWELL)addWave(compass(w.h),w.l,U.swell.mul(w.a).mul(pow(sea,2).mul(.95).add(.05)),w.s,w.p);   // the estuary is sheltered from the ocean swell
   for(const w of WIND){
    const c=Math.cos(w.o*Math.PI/180),s=Math.sin(w.o*Math.PI/180);
    addWave(vec2(wdir.x.mul(c).sub(wdir.y.mul(s)),wdir.x.mul(s).add(wdir.y.mul(c))),windStretch.mul(w.l),windAmp.mul(w.a).mul(sqrt(windStretch)).mul(open.mul(.85).add(.15)),w.s,w.p);
@@ -80,8 +82,8 @@ export function createSea({look}){
   const yS=sh.Hs.mul(shapeS).mul(float(1).sub(sh.breaking.mul(.6))).add(sh.Hs2.mul(shapeS2).mul(float(1).sub(sh.breaking2.mul(.6)))).mul(sh.wS);
   // slope of the shoreline layer, from the distance field's gradient
   const e=8,gd=vec2(seaField(p.add(vec2(e,0))).y.sub(dist),seaField(p.add(vec2(0,e))).y.sub(dist)).div(e);
-  const dShape=pow(cs,2).mul(sin(sh.phS)).mul(-2.55).mul(6.2832/LS).mul(sh.shoal);
-  const dShape2=pow(cs2,2).mul(sin(sh.phS2)).mul(-2.55).mul(6.2832/LS2).mul(sh.shoal);
+  const dShape=pow(cs,2).mul(sin(sh.phS)).mul(-2.55).mul(float(6.2832/LS).div(U.waveScale)).mul(sh.shoal);
+  const dShape2=pow(cs2,2).mul(sin(sh.phS2)).mul(-2.55).mul(float(6.2832/LS2).div(U.waveScale)).mul(sh.shoal);
   const sS=gd.mul(dShape.mul(sh.Hs).add(dShape2.mul(sh.Hs2))).mul(sh.wS);
   const wD=float(1).sub(sh.wS.mul(.75));
   // near the waterline the surface is lifted so the swash can run up the sand (see opacity)

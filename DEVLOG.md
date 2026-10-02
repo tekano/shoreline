@@ -1,5 +1,15 @@
 # Devlog
 
+## 012: Scale, chop and shelter (2026-10-02)
+
+The waves gave the scale away: too big, and running in long identical bands.
+- **Wave scale slider:** shrinks or grows every component, length and height together, including the shoreline bands. Default 0.55.
+- **Choppier:** eight wind-wave components spread up to ±80° around the wind, with much stronger along-crest variation, so the surface reads as peaks rather than lines.
+- **Shelter:** ocean swell and shoreline bands now scale with fixed exposure to the open sea (the deep-water field), not the share of water nearby at the current tide. A flooded estuary at full tide had been counting as open water. The Duddon seen from the Sandscale pano spot stays a field of small chop at any tide.
+
+**Direction:** polish the Sandscale pano view first; everything else is a bonus.
+
+
 ## 011: A real sky clock, night and stars, buildings and turbines (2026-10-02)
 
 - **Overcast means no sun:** the sun's disc fades out behind a deck, and glitter and glints fade with the overcast and dim under cloud shadow. Overall glitter is half what it was.

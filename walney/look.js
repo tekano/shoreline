@@ -12,7 +12,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   sun:uniform(new THREE.Vector3(0,1,0)),time:uniform(0),tide:uniform(tide),tint:uniform(1),
   wind:uniform(new THREE.Vector2(.87,-.5)),windSpeed:uniform(7),   // m/s; blowing toward the ENE (a south-westerly, onshore here)
   swell:uniform(.8),clouds:uniform(.5),haze:uniform(1),
-  debug:uniform(0),overcast:uniform(0),
+  debug:uniform(0),overcast:uniform(0),waveScale:uniform(.55),
   stars:uniformArray(STARS.map(()=>new THREE.Vector4(0,-1,0,0)),'vec4'),   // scene direction + brightness, set by the sky clock
   toCel:uniform(new THREE.Matrix3()),                                          // scene direction -> celestial frame, set by the sky clock
   sunLight:uniform(new THREE.Vector3(3,3,3)),skyAmb:uniform(new THREE.Vector3(.2,.3,.5))   // scene-unit sun and skylight, set from the sun's height
@@ -407,7 +407,9 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  // CPU twins for placing things: zone at a point from the far grid
  const fieldAt=(arr,x,z)=>{const i=Math.min(Math.max(Math.round((x-far.west)/far.res-.5),0),far.w-1),j=Math.min(Math.max(Math.round((z-far.north)/far.res-.5),0),far.hgt-1);return arr[j*far.w+i];};
  const hwDistAt=(x,z)=>fieldAt(hw,x,z)*far.res;
- return {U,sky,skyMaterial,ground,sea,updateSea,gust,cloudShade,F,V,hwDistAt,SWASH,fogNode,sunLightingFor,seaField,bedAt};
+ // exposure to the open sea (fixed): the West Shore is exposed, the Duddon sheltered at any tide
+ const exposureAt=p=>texture(expTex,p.sub(vec2(far.west,far.north)).div(vec2(far.w*far.res,far.hgt*far.res))).r;
+ return {U,sky,skyMaterial,ground,sea,updateSea,gust,cloudShade,F,V,hwDistAt,SWASH,fogNode,sunLightingFor,seaField,bedAt,exposureAt};
 }
 
 // CPU twin of the atmosphere, for the scene's lights: the sun's colour after
