@@ -34,12 +34,12 @@ const height=(x,z)=>{const w=nearEdge(x,z);return w>0?sample(near,x,z)*w+sample(
 const DEFAULT={...meta.cameras.westshore,tide:-1.5,haze:1,sunaz:195,sunel:52,tint:1};
 const saved=read();
 const presets={...meta.cameras,...saved};
-const state={motion:'locked',panDeg:24,panSecs:90,...DEFAULT,...(saved.__last||{})};
+const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,...DEFAULT,...(saved.__last||{})};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
 
 // ---------- renderer ----------
 const view=$('view');
-const renderer=new THREE.WebGPURenderer({antialias:true,forceWebGL:new URLSearchParams(location.search).has('webgl')});
+const renderer=new THREE.WebGPURenderer({antialias:true,reversedDepthBuffer:true,forceWebGL:new URLSearchParams(location.search).has('webgl')});
 await renderer.init();
 renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
 renderer.toneMapping=THREE.NeutralToneMapping;
@@ -53,7 +53,7 @@ scene.fog=new THREE.FogExp2(haze,0);
 
 // the look (sky, ground, sea) lives in look.js; U.tint switches clay ↔ colour
 const landcover=await loadLandcover(meta);
-const look=createLook({noiseTex:makeNoiseTexture(),far,tide:state.tide,landcover});
+const look=createLook({noiseTex:makeNoiseTexture(),far,near,tide:state.tide,landcover});
 const U=look.U;
 const ground=look.ground;
 const skyDome=new THREE.Mesh(new THREE.SphereGeometry(50000,48,24),look.skyMaterial);skyDome.frustumCulled=false;skyDome.renderOrder=-1;scene.add(skyDome);
@@ -105,14 +105,15 @@ function apply(){
  camera.position.set(x,camY,z);
  camera.rotation.set(state.pitch*Math.PI/180,-state.heading*Math.PI/180,0,'YXZ');
  camera.fov=mm2fov(state.mm??fovToMm(state.fov));camera.updateProjectionMatrix();
- water.position.y=state.tide;U.tide.value=state.tide;U.tint.value=+state.tint;skyDome.position.copy(camera.position);
+ water.position.y=state.tide+look.SWASH;U.tide.value=state.tide;U.clouds.value=state.clouds;U.swell.value=state.swell;U.tint.value=+state.tint;skyDome.position.copy(camera.position);
  // the waterline field is rebuilt after the tide slider settles
  if(state.tide!==seaTide){clearTimeout(seaTimer);seaTimer=setTimeout(()=>{look.updateSea(state.tide);seaTide=state.tide;},120);}
  scene.fog.density=state.haze*0.00006;
  const az=state.sunaz*Math.PI/180,el=state.sunel*Math.PI/180;
  sun.position.set(x+Math.sin(az)*Math.cos(el)*5000,camY+Math.sin(el)*5000,z-Math.cos(az)*Math.cos(el)*5000);sun.target.position.set(x,camY,z);
  U.sun.value.set(Math.sin(az)*Math.cos(el),Math.sin(el),-Math.cos(az)*Math.cos(el));
- for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs'])$(k).value=state[k];
+ for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell'])$(k).value=state[k];
+ $('clouds-v').textContent=Math.round(state.clouds*100)+'%';$('swell-v').textContent=state.swell.toFixed(2);
  $('motion').value=state.motion;$('panDeg-v').textContent=state.panDeg;$('panSecs-v').textContent=state.panSecs;
  $('fov').value=state.mm??fovToMm(state.fov);$('tint').value=state.tint;
  $('eye-v').textContent=state.eye.toFixed(1);$('heading-v').textContent=state.heading.toFixed(1);$('pitch-v').textContent=state.pitch.toFixed(1);
@@ -129,7 +130,7 @@ function fovToMm(v){return Math.round(24/(2*Math.tan(v*Math.PI/360)));}
 for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
 $('fov').oninput=e=>{state.mm=+e.target.value;apply();};
 $('tint').onchange=e=>{state.tint=+e.target.value;apply();};
-for(const k of ['panDeg','panSecs'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
+for(const k of ['panDeg','panSecs','clouds','swell'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
 $('motion').onchange=e=>{state.motion=e.target.value;panStart=performance.now()/1000;apply();};
 function fillPresets(){const all={...meta.cameras,...read()};delete all.__last;$('preset').innerHTML='<option value="">Choose a view…</option>'+Object.entries(all).map(([k,v])=>`<option value="${k}">${v.label||k}</option>`).join('');}
 fillPresets();
@@ -200,4 +201,4 @@ renderer.setAnimationLoop(t=>{U.time.value=t/1000;
  if(state.motion!=='locked'&&!aim)camera.rotation.set(state.pitch*Math.PI/180,-panHeading(t/1000)*Math.PI/180,0,'YXZ');const r=view.getBoundingClientRect();if(r.width&&r.height)renderer.render(scene,camera);});
 // dev: render one frame and save it through tools/serve.py (captures/, git-ignored)
 async function capture(name='walney.png'){renderer.render(scene,camera);const blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/png'));await fetch(`/__capture?name=${encodeURIComponent(name)}`,{method:'POST',body:blob});return name;}
-window.walney={state,apply,height,meta,capture,grass,look};
+window.walney={state,apply,height,meta,capture,grass,look,scene,water,terrain};

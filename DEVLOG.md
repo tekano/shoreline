@@ -1,5 +1,24 @@
 # Devlog
 
+## 006: The beach edge, cumulus, and no more flashing (2026-10-02)
+
+- **Flashing waterline fixed:**
+  - the renderer uses a reversed 32-bit depth buffer;
+  - water depth comes from the real 4 m terrain heights instead of being read back from the depth buffer.
+
+  Where the sea barely covers the sand, the two surfaces fought over the same depth and flickered.
+- **Smooth land cover:** each pixel blends the four nearest 4 m land-cover cells and wanders by a metre or two of noise, so roads and marsh edges are smooth instead of stair-stepped.
+- **Swash:** each wave that reaches the beach runs up and drains back. The water plane sits a little above the tide, and wherever the swash isn't really there it is fully transparent. The leading edge has a lacy foam line with bubbles left behind it. The thin sheet is glassy and mostly see-through, except where it mirrors the sky.
+- **Sand:**
+  - freshly uncovered sand just above the water is mirror-wet;
+  - reflections now use a proper Fresnel term: sand colour when you look down, sky at glancing angles;
+  - sinuous, forking ripple marks in patches, in both relief and colour, fading out before they could shimmer.
+- **Beach versus estuary:** OpenStreetMap tags the West Shore beach and the Duddon mud both as tidal flat. An *exposure* field (the share of deep water within ~2.5 km) tells open coast from sheltered estuary: exposed is sand, sheltered is silver mud.
+- **Cumulus:** one cloud field 1.6 km up, drifting with the wind. The sky draws it; the ground, grass and sea darken in its shadow; the wet sand and sea reflect it. New **Cumulus** and **Swell** sliders.
+
+**Still to do:** the cumulus are flat 2D shapes and need volume and proper shading against the West Shore photo.
+
+
 ## 005: What the ground actually is (2026-10-02)
 
 LiDAR gives the *shape* of the ground: the gravel road is a flat ribbon, the saltmarsh a flat shelf. It can't say what any of it *is*. OpenStreetMap can.

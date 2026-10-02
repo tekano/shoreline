@@ -75,7 +75,7 @@ export function createGrass({look,height,zone}){
   base.assign(mix(base,mix(mix(color('#33482a'),color('#5f7a45'),vT),color('#7c7a4c'),dry.mul(.4)),step(1.5,kind)));
   // rolled marram leaves flash silver-grey when a gust lays them over
   base.assign(mix(base,color('#a9a898'),vG.mul(vTone.z).mul(smoothstep(.2,.9,vT)).mul(.3)));
-  return base.mul(mix(.55,1,smoothstep(0,.5,vT)));      // darker down in the clump
+  return base.mul(mix(.55,1,smoothstep(0,.5,vT))).mul(look.cloudShade(vP));      // darker down in the clump, and under cloud
  })();
  material.colorNode=albedo;
  // sun shining through backlit leaves
