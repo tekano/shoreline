@@ -1,5 +1,28 @@
 # Devlog
 
+## 002: A real place (2026-10-02)
+
+Leon Lin's (@LexnLin) Point Lookout scene showed what actually sells a coastline. It isn't the water alone:
+- a **real location** to match;
+- **depth layers**: foreground grass and trees, midground surf and headland, background beach and hills in haze;
+- **one wind** moving everything, the trees, grass, water and sound together;
+- **sound**.
+
+The high camera also means the water never has to hold up close.
+
+So Shoreline is getting a real place: **north Walney and the Duddon estuary**, looking from the Sandscale Haws dunes over the sands to Black Combe. It's home ground.
+- **Character:** marram grass streaming in the wind, low-tide flats with pools that mirror the sky, a big cumulus sky, and hazy fells.
+- **Water:** gentle Irish Sea spilling breakers. These suit a shallow-water solver better than curling surf would.
+- **Tide:** the tidal range is huge, so the tide becomes the scene's clock.
+
+The terrain is the real thing: Environment Agency LiDAR at 2 m (1 m is available) across 15 × 25 km, Black Combe's 600 m included.
+- `terrain/fetch.py` pulls the tiles from the EA survey API.
+- `terrain/build.py` stitches them, fills the sea below the survey edge, and writes a light build for the browser and a full float heightfield for Houdini.
+- The `walney/` blockout builds a camera-centred terrain mesh (about 1.5 m apart at the camera, about 100 m at Black Combe) and has a top-down map for placing and saving camera views.
+
+**Next:** pick the hero views on the map. Then shade one layer at a time: sky and haze first (they set the mood), then flats and pools, grass and wind, and the water last.
+
+
 ## 001: Starting from the best of what's out there (2026-10-02)
 
 A realtime beach-waves video was trending on X, and plenty of good work was already public. Rather than spend 40 hours getting back to that point, I started from it.

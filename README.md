@@ -17,6 +17,10 @@ Both are MIT licensed; see [Credits](#credits). The direction from here is in th
 |---|---|
 | ![Saltreach original](docs/v0.1-saltreach-original.jpg) | ![Shoreline lace](docs/v0.1-lace.jpg) |
 
+## Walney: a real place
+
+The scene is moving to a real location: north Walney Island and the Duddon estuary, looking toward Black Combe in Cumbria. [`walney/`](walney/) is a blockout of the real terrain from Environment Agency LiDAR, with a top-down map for placing camera views ([live](https://tekano.github.io/shoreline/walney/)).
+
 ## Run it
 
 Any static server works. This one turns caching off so shader edits show on reload:
@@ -60,6 +64,7 @@ Changes from the upstream code are commented where they happen. `src/look.js` an
 - **reality-js** © 2026 ai_impl, MIT ([licence](third_party/reality-js-LICENSE)): the foam lace, absorption, surf-zone colour, crest light and glint shaders, ported from GLSL to TSL.
 - **three.js** r185, MIT ([threejs.org](https://threejs.org)), vendored in `vendor/`.
 - **lil-gui** 0.20, MIT ([licence](vendor/lil-gui/LICENSE)): the look panel.
+- **Terrain** © Environment Agency copyright and/or database right 2022, [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
 
 ## Licence
 
