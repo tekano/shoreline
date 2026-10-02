@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import {STARS} from './sky-clock.js';
-import {Fn,uniform,float,vec2,vec3,vec4,color,texture,mix,smoothstep,max,min,abs,pow,dot,normalize,reflect,clamp,cos,sin,acos,exp,fract,floor,step,length,fog,screenUV,screenCoordinate,uniformArray,
+import {Fn,uniform,float,vec2,vec3,vec4,color,texture,mix,smoothstep,max,min,abs,pow,dot,normalize,reflect,clamp,cos,sin,acos,exp,fract,floor,step,length,fog,screenUV,screenCoordinate,uniformArray,output,log,
  positionWorld,normalWorld,cameraPosition,reflectVector,bumpMap} from 'three/tsl';
 
 // The look of the Walney scene, matched to photos of the place: summer sky
@@ -176,8 +176,16 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   const od=dist.mul(e(y0).add(e(ym).mul(4)).add(e(y1)).div(6)).mul(U.haze.add(U.overcast.mul(2.2)).mul(.00006));
   return float(1).sub(exp(od.negate()));
  });
- const fogDir=Fn(()=>{const v=positionWorld.sub(cameraPosition);const n=normalize(v);return vec3(n.x,max(n.y,.01),n.z);});
- const fogNode=fog(atmosphere(fogDir()).mul(.95),fogFactor());
+ // Per-channel haze: air scatters blue most, so over a few km distant land takes a
+ // blue veil (as in the pano), and only far away does it wash out pale. The light
+ // added back is the sky's colour a little above the horizon in that direction.
+ const fogNode=Fn(()=>{
+  const v=positionWorld.sub(cameraPosition),n=normalize(v);
+  const od=float(1).sub(fogFactor()).max(1e-6).log().negate();               // optical depth for blue
+  const T=exp(vec3(.38,.62,1).mul(od).negate());                             // red and green get through further
+  const sky=atmosphere(vec3(n.x,max(n.y,0).add(.12),n.z));
+  return vec4(output.rgb.mul(T).add(sky.mul(vec3(1).sub(T))),output.a);
+ })();
 
  // ---------- sea field: bed height, distance from the waterline, openness ----------
  // Recomputed whenever the tide moves, so breaker lines follow the real waterline.
@@ -291,7 +299,9 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   g.assign(mix(g,rockC,smoothstep(.8,.62,up)));
   if(lcMask){
    const acc=vec3(0).toVar(),wsum=float(0).toVar();
-   for(const [k,c] of Object.entries(PALETTE)){const m=is(+k);acc.addAssign(c.mul(m));wsum.addAssign(m);}
+   // footpaths and tracks are trodden lines you only see up close: fade them out with distance
+   const pathFade=float(1).sub(smoothstep(600,2500,range));
+   for(const [k,c] of Object.entries(PALETTE)){const m=+k===21||+k===22?is(+k).mul(pathFade):is(+k);acc.addAssign(c.mul(m));wsum.addAssign(m);}
    g.assign(acc.add(g.mul(max(float(1).sub(wsum),0))));
   }
   return g;
