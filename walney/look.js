@@ -12,7 +12,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   sun:uniform(new THREE.Vector3(0,1,0)),time:uniform(0),tide:uniform(tide),tint:uniform(1),
   wind:uniform(new THREE.Vector2(.87,-.5)),windSpeed:uniform(7),   // m/s; blowing toward the ENE (a south-westerly, onshore here)
   swell:uniform(.8),clouds:uniform(.5),haze:uniform(1),
-  debug:uniform(0),overcast:uniform(0),waveScale:uniform(.55),
+  debug:uniform(0),overcast:uniform(0),waveScale:uniform(.55),skyGain:uniform(.8),
   stars:uniformArray(STARS.map(()=>new THREE.Vector4(0,-1,0,0)),'vec4'),   // scene direction + brightness, set by the sky clock
   toCel:uniform(new THREE.Matrix3()),                                          // scene direction -> celestial frame, set by the sky clock
   sunLight:uniform(new THREE.Vector3(3,3,3)),skyAmb:uniform(new THREE.Vector3(.2,.3,.5))   // scene-unit sun and skylight, set from the sun's height
@@ -53,7 +53,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   // looking up, you see light scattered high in the air, which crossed less of it: bluer overhead at sunset
   const ts=sunTrans(s.y.add(max(d.y,0).mul(.45).mul(smoothstep(-.04,.08,s.y))).add(.01));   // (only while the sun is up)
   const phaseR=float(1).add(c.mul(c)).mul(.0597),phaseM=hg(c,.76);
-  const tauV=BR.add(BM).mul(airMass(max(d.y,0)));
+  const tauV=BR.add(BM).mul(airMass(max(d.y,0))).mul(.7);                           // a thinner pale band: the sky stays blue to a few degrees up
   const scatter=BR.mul(phaseR).add(BM.mul(phaseM)).div(BR.add(BM));
   const col=ts.mul(scatter).mul(float(1).sub(exp(tauV.negate()))).mul(ESUN).toVar();
   col.addAssign(ts.mul(ESUN*3).mul(smoothstep(.99994,.99998,c)).mul(step(0,d.y)).mul(pow(float(1).sub(U.overcast),3)));   // the sun's disc, gone behind a deck
@@ -61,7 +61,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   // overcast: a grey stratus deck, brightest overhead, hides the blue and the sun's disc
   const day=smoothstep(-.05,.35,s.y).mul(.85).add(smoothstep(-.1,0,s.y).mul(.15));
   const deck=vec3(.62,.65,.7).mul(day).mul(smoothstep(-.05,.6,d.y).mul(.6).add(.55)).mul(1.35);
-  return mix(col,deck,U.overcast.mul(.92));
+  return mix(col,deck,U.overcast.mul(.92)).mul(U.skyGain);   // sky brightness against the sunlit land (the photo's sky sits about a stop lower)
  });
 
  // ---------- clouds ----------
@@ -117,7 +117,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   const far=float(1).sub(exp(t0.mul(-1/30000).mul(U.haze.add(.3))));
   // and right on the horizon, where samples are too far apart to resolve a cloud, fade them out
   const low=smoothstep(.025,.07,d.y);
-  return vec4(mix(L,atmosphere(vec3(d.x,.03,d.z)).mul(float(1).sub(T)),far).mul(low),mix(1,T,low));
+  return vec4(mix(L,atmosphere(d).mul(float(1).sub(T)),far).mul(low),mix(1,T,low));   // into the sky behind them, not a white veil
  });
 
  // ---------- sky ----------
@@ -127,7 +127,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   const pc=d.xz.div(max(d.y,.03)).mul(9000);
   const wdir=normalize(U.wind),across=vec2(wdir.y.negate(),wdir.x);
   const ci=vec2(dot(pc,wdir).mul(.00003),dot(pc,across).mul(.00022)).add(vec2(U.time.mul(.0004),0));
-  return pow(smoothstep(.45,.85,F(ci,.3)),2).mul(smoothstep(.04,.25,d.y)).mul(float(.45).sub(U.clouds.mul(.3)));
+  return pow(smoothstep(.45,.85,F(ci,.3)),2).mul(smoothstep(.04,.25,d.y)).mul(float(.2).sub(U.clouds.mul(.12)));   // faint wisps, as in the pano
  };
  const sky=Fn(([dir])=>{
   const d=normalize(dir).toVar();
@@ -163,6 +163,9 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   withClouds.addAssign(vec3(1,.97,.92).mul(fill.mul(2.2).add(band.mul(.035))).mul(night));
   return withClouds.mul(step(0,d.y)).add(atmosphere(vec3(d.x,.0,d.z)).mul(step(d.y,0)));
  });
+ // what a rough water or wet surface mirrors: facets tilt the view up off the pale horizon band,
+ // so distant water reads darker and bluer than the sky just above it
+ const skyRefl=Fn(([r])=>sky(vec3(r.x,max(r.y,0).mul(.75).add(.09),r.z)));
  const skyMaterial=new THREE.MeshBasicNodeMaterial({side:THREE.BackSide,depthWrite:false,fog:false});
  skyMaterial.colorNode=skyFull(positionWorld.sub(cameraPosition));
 
@@ -327,11 +330,11 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  ground.colorNode=mix(clay,mix(mix(ground0.mul(ripTone),color('#cfcdb8'),sheen.mul(.22)).mul(mix(1,.62,wet.mul(.5))),color('#55657a'),pool.mul(.6)),U.tint).mul(shade);
  const wetFlat=max(max(wet,is(14).mul(float(1).sub(exposed)).mul(.55)),mirror);    // estuary flats stay glossy long after the tide drops
  ground.roughnessNode=mix(float(.95),mix(mix(mix(.95,.35,wetFlat),.12,mirror),.04,pool),U.tint);
- ground.envNode=sky(vec3(0,1,0)).mul(.1);                                     // soft skylight, no tint from reflections
+ ground.envNode=sky(vec3(0,1,0)).mul(.1).div(U.skyGain);                                     // soft skylight, no tint from reflections
  const eyeG=normalize(cameraPosition.sub(positionWorld));
  const fresG=float(.02).add(pow(float(1).sub(max(dot(normalWorld,eyeG),0)),5).mul(.98));
  const gloss=max(max(wetFlat.mul(.35),pool),mirror.mul(.85));
- ground.emissiveNode=sky(reflect(eyeG.negate(),normalWorld)).mul(fresG).mul(gloss).mul(U.tint).mul(shade.mul(.5).add(.5));
+ ground.emissiveNode=skyRefl(reflect(eyeG.negate(),normalWorld)).mul(fresG).mul(gloss).mul(U.tint).mul(shade.mul(.5).add(.5));
 
  // ---------- sea ----------
  // The water plane sits SWASH metres above the tide so the swash can run up
@@ -391,7 +394,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
   body.mulAssign(U.sunLight.mul(max(U.sun.y,0)).mul(shadeS).mul(.32).add(U.skyAmb.mul(.9)));
   const ndv=max(dot(n,eye),0);
   const fres=float(.02).add(pow(float(1).sub(ndv),5).mul(.98));
-  const refl=sky(reflect(eye.negate(),n)).mul(.85);
+  const refl=skyRefl(reflect(eye.negate(),n)).mul(.85);
   const col=mix(body,refl,fres).toVar();
   // sun glitter: countless tiny facets, some tilted to mirror the sun into the eye.
   // The rougher the water (wind, open sea), the wider and softer the glitter path.
@@ -419,7 +422,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  const hwDistAt=(x,z)=>fieldAt(hw,x,z)*far.res;
  // exposure to the open sea (fixed): the West Shore is exposed, the Duddon sheltered at any tide
  const exposureAt=p=>texture(expTex,p.sub(vec2(far.west,far.north)).div(vec2(far.w*far.res,far.hgt*far.res))).r;
- return {U,sky,skyMaterial,ground,sea,updateSea,gust,cloudShade,F,V,hwDistAt,SWASH,fogNode,sunLightingFor,seaField,bedAt,exposureAt};
+ return {U,sky,skyRefl,skyMaterial,ground,sea,updateSea,gust,cloudShade,F,V,hwDistAt,SWASH,fogNode,sunLightingFor,seaField,bedAt,exposureAt};
 }
 
 // CPU twin of the atmosphere, for the scene's lights: the sun's colour after

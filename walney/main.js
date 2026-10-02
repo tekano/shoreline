@@ -39,7 +39,7 @@ const height=(x,z)=>{const w=nearEdge(x,z);return w>0?sample(near,x,z)*w+sample(
 const DEFAULT={...meta.cameras.westshore,tide:-1.5,haze:1,sunaz:195,sunel:52,tint:1};
 const saved=read();
 const presets={...meta.cameras,...saved};
-const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,exposure:1,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1.3,saturation:1,blacks:.008,...DEFAULT,...(saved.__last||{})};
+const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,exposure:1,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1.3,saturation:1,blacks:.008,skyGain:.8,...DEFAULT,...(saved.__last||{})};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
 
 // ---------- renderer ----------
@@ -161,8 +161,9 @@ function apply(){
  U.sunLight.value.set(T[0]*3.4*direct,T[1]*3.4*direct,T[2]*3.4*direct);U.skyAmb.value.set(...amb);U.overcast.value=ov;U.waveScale.value=state.waveScale;
  sun.color.setRGB(T[0]/tm,T[1]/tm,T[2]/tm);sun.intensity=3.4*tm*direct;
  hemi.color.setRGB(amb[0]/zm,amb[1]/zm,amb[2]/zm);hemi.intensity=(Math.min(.75,zm/.29*.62)+.02)*(1+ov*.25);   // sun-led light: modest fill, darker overcast days
- G.contrast.value=state.contrast;G.saturation.value=state.saturation;G.blacks.value=state.blacks;
- for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','exposure','wind','overcast','day','time','waveScale','contrast','saturation','blacks'])$(k).value=state[k];
+ U.skyGain.value=state.skyGain;G.contrast.value=state.contrast;G.saturation.value=state.saturation;G.blacks.value=state.blacks;
+ for(const k of ['eye','heading','pitch','tide','haze','sunaz','sunel','panDeg','panSecs','clouds','swell','exposure','wind','overcast','day','time','waveScale','contrast','saturation','blacks','skyGain'])$(k).value=state[k];
+ $('skyGain-v').textContent=state.skyGain.toFixed(2);
  $('contrast-v').textContent=state.contrast.toFixed(2);$('saturation-v').textContent=state.saturation.toFixed(2);$('blacks-v').textContent=state.blacks.toFixed(3);
  $('waveScale-v').textContent=state.waveScale.toFixed(2);
  const md=new Date(Date.UTC(2026,0,state.day));$('day-v').textContent=md.toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
@@ -191,7 +192,7 @@ $('fov').oninput=e=>{state.mm=+e.target.value;apply();};
 $('tint').onchange=e=>{state.tint=+e.target.value;apply();};
 // the clock moves the sun along its real path for Walney
 for(const k of ['day','time'])$(k).oninput=e=>{state[k]=+e.target.value;const sk=skyAt(2026,state.day,state.time);state.sunaz=Math.round(sk.sunAz);state.sunel=Math.round(sk.sunEl*4)/4;apply();};
-for(const k of ['panDeg','panSecs','clouds','swell','exposure','wind','overcast','waveScale','contrast','saturation','blacks'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
+for(const k of ['panDeg','panSecs','clouds','swell','exposure','wind','overcast','waveScale','contrast','saturation','blacks','skyGain'])$(k).oninput=e=>{state[k]=+e.target.value;apply();};
 $('motion').onchange=e=>{state.motion=e.target.value;panStart=performance.now()/1000;apply();};
 function fillPresets(){const all={...meta.cameras,...read()};delete all.__last;$('preset').innerHTML='<option value="">Choose a view…</option>'+Object.entries(all).map(([k,v])=>`<option value="${k}">${v.label||k}</option>`).join('');}
 fillPresets();

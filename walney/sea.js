@@ -20,7 +20,7 @@ const SWELL=[{l:64,a:.34,h:72,s:.55,p:0},{l:48,a:.22,h:58,s:.5,p:1.7},{l:36,a:.1
 const WIND=[{l:17,a:.05,o:0,s:.6,p:.3},{l:11,a:.04,o:48,s:.6,p:2.2},{l:7.4,a:.03,o:-55,s:.55,p:5.1},{l:5.6,a:.022,o:25,s:.5,p:1.1},{l:4.1,a:.016,o:-70,s:.5,p:3.3},{l:3,a:.011,o:80,s:.45,p:.8},{l:2.1,a:.007,o:-35,s:.4,p:4.4},{l:1.5,a:.0045,o:60,s:.35,p:2.9}];
 
 export function createSea({look}){
- const {U,F,V,sky,cloudShade,seaField,bedAt,SWASH,exposureAt}=look;
+ const {U,F,V,sky,skyRefl,cloudShade,seaField,bedAt,SWASH,exposureAt}=look;
  const tanh=x=>{const t=exp(x.mul(-2));return float(1).sub(t).div(float(1).add(t));};   // x >= 0 here
  const compass=h=>vec2(Math.sin(h*Math.PI/180),-Math.cos(h*Math.PI/180));   // x east, z south
 
@@ -192,7 +192,7 @@ export function createSea({look}){
    const back=pow(max(dot(eye.negate(),normalize(vec3(U.sun.x,0,U.sun.z))),0),2).mul(.6).add(.4);
    body.addAssign(color('#2f8c7c').mul(U.sunLight).mul(max(U.sun.y,.05)).mul(smoothstep(.2,.9,crest)).mul(back).mul(shadeS).mul(.35).mul(smoothstep(.5,3,depth)));
    const fres=float(.02).add(pow(float(1).sub(ndv),5).mul(.98));
-   const col=mix(body,sky(reflect(eye.negate(),n)).mul(.85),fres).toVar();
+   const col=mix(body,skyRefl(reflect(eye.negate(),n)).mul(.85),fres).toVar();
    // sun glitter: a statistical path that widens with roughness...
    const hS=normalize(U.sun.add(eye)),nh=max(dot(n,hS),.001),nh2=nh.mul(nh);
    const sig2=float(.0012).add(rough.mul(.012));
