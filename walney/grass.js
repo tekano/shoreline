@@ -66,16 +66,16 @@ export function createGrass({look,height,zone}){
  const albedo=Fn(()=>{
   const dry=vTone.x;
   // marram: dark olive at the root, olive-straw up the leaf, pale straw tips
-  const green=mix(color('#4a5726'),color('#7a8440'),vT);
-  const straw=mix(color('#7a7440'),color('#b9aa72'),pow(vT,1.4));
+  const green=mix(color('#4e5b3e'),color('#808963'),vT);
+  const straw=mix(color('#807963'),color('#b6ad86'),pow(vT,1.4));
   const base=mix(green,straw,dry).toVar();
   // field grass: fresher green; saltmarsh: dark sea-green grasses and rushes
   const kind=vTone.w;
-  base.assign(mix(base,mix(mix(color('#4d6a2a'),color('#86a04a'),vT),color('#9d9a5a'),dry.mul(.5)),step(.5,kind).mul(step(kind,1.5))));
-  base.assign(mix(base,mix(mix(color('#33482a'),color('#5f7a45'),vT),color('#7c7a4c'),dry.mul(.4)),step(1.5,kind)));
+  base.assign(mix(base,mix(mix(color('#4d6a36'),color('#86a05d'),vT),color('#9d9a71'),dry.mul(.5)),step(.5,kind).mul(step(kind,1.5))));
+  base.assign(mix(base,mix(mix(color('#394d30'),color('#6a824f'),vT),color('#898256'),dry.mul(.4)),step(1.5,kind)));
   // rolled marram leaves flash silver-grey when a gust lays them over
   base.assign(mix(base,color('#a9a898'),vG.mul(vTone.z).mul(smoothstep(.2,.9,vT)).mul(.3)));
-  return base.mul(mix(.55,1,smoothstep(0,.5,vT))).mul(look.cloudShade(vP));      // darker down in the clump, and under cloud
+  return base.mul(mix(.68,1,smoothstep(0,.5,vT))).mul(look.cloudShade(vP));      // darker down in the clump, and under cloud
  })();
  material.colorNode=albedo;
  // sun shining through backlit leaves

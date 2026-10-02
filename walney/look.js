@@ -248,9 +248,9 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  const wetSandC=mix(color('#86705c'),color('#a3896c'),grain);         // warm ochre-tan of the wet beach (West Shore photo)
  const drySandC=mix(color('#c9b493'),color('#d8c6a3'),grain);
  const shingleC=mix(color('#8d877e'),color('#b9b5ad'),V(p.mul(3.1),.7)); // cobbles: grey with pale stones
- const marramC=mix(color('#9a9752'),color('#bcb072'),patch.mul(.6).add(grain.mul(.4)));  // olive-straw marram
- const slackC=mix(color('#7d8a45'),color('#8f9a50'),grain);                            // greener grass in the hollows
- const pastureC=mix(color('#62783c'),color('#76884a'),patch);
+ const marramC=mix(color('#948c62'),color('#aba179'),patch.mul(.6).add(grain.mul(.4)));  // olive-straw marram
+ const slackC=mix(color('#7e875c'),color('#90966a'),grain);                            // greener grass in the hollows
+ const pastureC=mix(color('#62784c'),color('#76885d'),patch);
  const fellC=mix(color('#5c6a45'),color('#6b704e'),patch);
  const heatherC=mix(color('#5d5249'),color('#6b5d55'),patch);                          // bracken and heather on the tops
  const rockC=mix(color('#8e8a82'),color('#aaa69e'),grain);
@@ -260,7 +260,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  const beach=float(1).sub(smoothstep(12,40,hwDist));
  const hollow=smoothstep(.45,.6,F(p.mul(.02),.8));
  // colours sampled from the Sandscale pano: grey-olive marsh, straw-olive rush bands
- const marshC=mix(mix(color('#4a5139'),color('#5f6547'),patch),color('#666340'),smoothstep(.55,.7,F(p.mul(.06),2.2)).mul(.6));
+ const marshC=mix(mix(color('#454c3a'),color('#595f48'),patch),color('#605d41'),smoothstep(.55,.7,F(p.mul(.06),2.2)).mul(.6));
  const exposed=texture(expTex,p.sub(vec2(far.west,far.north)).div(vec2(far.w*far.res,far.hgt*far.res))).r;
  const estuaryC=mix(color('#5d605a'),color('#8a8676'),smoothstep(2.5,4.5,aboveTide));    // sheltered estuary flats: wet silver-grey
  const sandLike0=mix(wetSandC,drySandC,smoothstep(1.2,3.,aboveTide));
