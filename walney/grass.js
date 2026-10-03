@@ -126,10 +126,13 @@ export function createGrass({look,height,zone}){
    const [p0,kind]=zone(x,z);if(p0<=0||rnd()>p0)continue;
    // field grass is shorter and finer; marsh grass mid-height
    const lenK=kind===1?.55:kind===2?.75:1;
-   const k=scale(r),clump=r<45?6+Math.floor(rnd()*14):1;
+   // on dunes and grassland about one clump in six is a tall, straw-dry tussock (the Roanhead pano)
+   const tuft=kind!==2&&rnd()<.17;
+   const k=scale(r),clump=r<45?(tuft?14:6)+Math.floor(rnd()*14):1,tl=tuft?1.75:1;
    for(let c=0;c<clump&&placed<field;c++,placed++){
-    const ya=rnd()*Math.PI*2,rr=clump>1?Math.sqrt(rnd())*.2*k:0;
-    put(x+Math.sin(ya)*rr,z+Math.cos(ya)*rr,ya,(.35+rnd()*.45)*Math.min(k,2.2)*lenK,(.012+rnd()*.008)*k,.3+rnd()*.9,rnd(),.15+rnd()*.55,.9+rnd()*.5,.5+rnd()*.5,kind);
+    const ya=rnd()*Math.PI*2,rr=clump>1?Math.sqrt(rnd())*(tuft?.28:.2)*k:0;
+    const dry=tuft?.7+rnd()*.3:kind===1?.3+rnd()*.55:.15+rnd()*.55;   // field grass on the dunes is drier too
+    put(x+Math.sin(ya)*rr,z+Math.cos(ya)*rr,ya,(.35+rnd()*.45)*Math.min(k,2.2)*lenK*tl,(.012+rnd()*.008)*k,(tuft?.6:.3)+rnd()*.9,rnd(),dry,.9+rnd()*.5,.5+rnd()*.5,kind);
    }
   }
   geometry.instanceCount=count;
