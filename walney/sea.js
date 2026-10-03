@@ -224,11 +224,12 @@ export function createSea({look}){
    const bubbles=smoothstep(.04,.12,depth).mul(float(1).sub(smoothstep(.25,.6,depth))).mul(bubbleDots).mul(bubblePatch).mul(smoothstep(.06,.02,fw)).mul(.35);
    const foam=clamp(max(max(surf,edge),bubbles),0,1).toVar();
    // body: silty sand-grey in the shallows, teal, deep blue-grey; lit by sun and sky
-   const body=mix(color('#8c8770'),color('#6f7e72'),smoothstep(.15,1.2,depth)).toVar();
-   body.assign(mix(body,color('#2a4f58'),smoothstep(1.2,4,depth)));   // 1-4 m: ~5% back, green-grey
-   // deep water absorbs nearly all the light that enters: it sends back only ~2-5% (blue most),
-   // so open water goes dark slate-blue from ~4 m and is fully dark by ~12 m
-   body.assign(mix(body,color('#0f2142'),smoothstep(4,12,depth)));   // navy, as the Irish Sea off Walney
+   // murky water: the Irish Sea here carries sand and silt, you can see a metre or two at best.
+   // The sand shows through only in the first ~0.8 m; then murky grey-green, and the light that
+   // enters is soon absorbed: dark navy-slate from ~2.5 m, fully dark by ~7 m
+   const body=mix(color('#8c8770'),color('#5e6457'),smoothstep(.1,.8,depth)).toVar();
+   body.assign(mix(body,color('#2f3d3c'),smoothstep(.8,2.5,depth)));   // murky grey-green, a hint of brown
+   body.assign(mix(body,color('#0f2142'),smoothstep(2.5,7,depth)));    // navy, as the Irish Sea off Walney
    // under an overcast deck the Irish Sea goes slate: grey-green, little blue left
    body.assign(mix(body,mix(color('#6b6f66'),color('#4b5655'),smoothstep(.5,5,depth)),U.overcast.mul(.75)));
    body.mulAssign(U.sunLight.mul(max(U.sun.y,0)).mul(shadeS).mul(.32).add(U.skyAmb.mul(.6)));
