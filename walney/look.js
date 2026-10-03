@@ -292,9 +292,9 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
   fieldTex.needsUpdate=true;
  };
  updateSea(tide);
- // off the map (the offshore wind farms lie 10-40 km out) the field fades to open sea: 30 m deep,
+ // off the map (the offshore wind farms lie 10-40 km out) the field fades, over 5 km, to open sea: 30 m deep,
  // far from any shore, fully exposed (instead of the edge values smeared outward)
- const seaField=p=>mix(vec4(-30,20000,1,20000),texture(fieldTex,p.sub(vec2(far.west,far.north)).div(vec2(far.w*far.res,far.hgt*far.res))),inLayer(far,p,1500));
+ const seaField=p=>mix(vec4(-30,20000,1,20000),texture(fieldTex,p.sub(vec2(far.west,far.north)).div(vec2(far.w*far.res,far.hgt*far.res))),inLayer(far,p,5000));
 
  // Bed height for the water shader, from the 4 m layer where it exists. Water
  // depth is computed from this, never read back from the depth buffer, so the
@@ -497,6 +497,6 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
  const fieldAt=(arr,x,z)=>{const i=Math.min(Math.max(Math.round((x-far.west)/far.res-.5),0),far.w-1),j=Math.min(Math.max(Math.round((z-far.north)/far.res-.5),0),far.hgt-1);return arr[j*far.w+i];};
  const hwDistAt=(x,z)=>fieldAt(hw,x,z)*far.res;
  // exposure to the open sea (fixed): the West Shore is exposed, the Duddon sheltered at any tide
- const exposureAt=p=>mix(float(1),texture(expTex,p.sub(vec2(far.west,far.north)).div(vec2(far.w*far.res,far.hgt*far.res))).r,inLayer(far,p,1500));
+ const exposureAt=p=>mix(float(1),texture(expTex,p.sub(vec2(far.west,far.north)).div(vec2(far.w*far.res,far.hgt*far.res))).r,inLayer(far,p,5000));
  return {U,atmo,updateSkyTex,aerial,worley,Fq,Vq,sky,skyRefl,skyMaterial,ground,sea,updateSea,gust,cloudShade,F,V,hwDistAt,SWASH,fogNode,seaField,bedAt,exposureAt};
 }

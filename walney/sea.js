@@ -227,9 +227,12 @@ export function createSea({look}){
    // murky water: the Irish Sea here carries sand and silt, you can see a metre or two at best.
    // The sand shows through only in the first ~0.8 m; then murky grey-green, and the light that
    // enters is soon absorbed: dark navy-slate from ~2.5 m, fully dark by ~7 m
+   // the seabed fill offshore is only a guess, so for colour the water deepens at least 5 m per km
+   // out from the shore, as it does off Walney: the sea darkens steadily outward
+   const deepC=max(depth,max(f.y,0).mul(.005));
    const body=mix(color('#8c8770'),color('#5e6457'),smoothstep(.1,.8,depth)).toVar();
-   body.assign(mix(body,color('#2f3d3c'),smoothstep(.8,2.5,depth)));   // murky grey-green, a hint of brown
-   body.assign(mix(body,color('#0f2142'),smoothstep(2.5,7,depth)));    // navy, as the Irish Sea off Walney
+   body.assign(mix(body,color('#2f3d3c'),smoothstep(.8,2.5,deepC)));   // murky grey-green, a hint of brown
+   body.assign(mix(body,color('#0c1a2c'),smoothstep(2.5,7,deepC)));    // dark navy-slate, as the Irish Sea off Walney
    // under an overcast deck the Irish Sea goes slate: grey-green, little blue left
    body.assign(mix(body,mix(color('#6b6f66'),color('#4b5655'),smoothstep(.5,5,depth)),U.overcast.mul(.75)));
    body.mulAssign(U.sunLight.mul(max(U.sun.y,0)).mul(shadeS).mul(.32).add(U.skyAmb.mul(.6)));
