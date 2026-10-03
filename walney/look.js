@@ -378,7 +378,9 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
  // and ripple marks that fade out before they could shimmer at distance
  const sandish=lcMask?is(1).add(is(14)).add(max(float(1).sub([1,2,3,4,5,6,7,8,9,10,11,12,13,14,20,21,22,24].reduce((a,k)=>a.add(is(k)),float(0))),0)):float(1);
  const runnel=F(p.mul(vec2(.05,.006)),.05).mul(.75).add(F(p.mul(vec2(.2,.05)),1.7).mul(.25));
- const pool=smoothstep(.635,.655,runnel).mul(wet).mul(smoothstep(.985,.995,up)).mul(sandish);
+ // runnel pools only on sand the water has left: they fade in just above the swash's reach (the
+ // sea itself draws the water below it, so the two never show at once)
+ const pool=smoothstep(.635,.655,runnel).mul(wet).mul(smoothstep(.985,.995,up)).mul(sandish).mul(smoothstep(.12,.32,aboveTide));
  const mirror=float(1).sub(smoothstep(.04,.7,aboveTide)).mul(sandish);                 // freshly uncovered sand
  const ripDir=normalize(vec2(1,.35));
  // ripple marks: sinuous crests that wander and fork (heavy domain warp), in patches
