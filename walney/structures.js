@@ -82,7 +82,17 @@ export function createStructures({features,height,look,offshore=[]}){
   towers.setMatrixAt(i,m4.makeScale(rotor/40,hub,rotor/40).setPosition(x,y,z));   // towers thicken with the machine
   return {x,y:y+hub,z,rotor,lit,phase:Math.random()*6.3};
  });
- for(const m of [towers,heads,rotors]){m.frustumCulled=false;if(nOff)group.add(m);}
+ // the yellow transition piece (~20 m above the sea, painted for visibility) and its grey work platform
+ const yellow=new THREE.MeshStandardNodeMaterial({roughness:.6});yellow.colorNode=vec3(.85,.62,.06).mul(look.cloudShade(positionWorld));
+ const grey=new THREE.MeshStandardNodeMaterial({roughness:.8});grey.colorNode=vec3(.32,.33,.34).mul(look.cloudShade(positionWorld));
+ const tps=new THREE.InstancedMesh(new THREE.CylinderGeometry(1,1,1,12).translate(0,.5,0),yellow,nOff);
+ const decks=new THREE.InstancedMesh(new THREE.CylinderGeometry(1,1,1,14).translate(0,.5,0),grey,nOff);
+ offshore.forEach(([x,z,hub,rotor],i)=>{
+  const y=Math.max(height(x,z),0),r=rotor/40*1.15;
+  tps.setMatrixAt(i,m4.makeScale(r,20,r).setPosition(x,y,z));
+  decks.setMatrixAt(i,m4.makeScale(r*2.2,.6,r*2.2).setPosition(x,y+20,z));
+ });
+ for(const m of [towers,heads,rotors,tps,decks]){m.frustumCulled=false;if(nOff)group.add(m);}
  const placeFarm=(yaw,spin)=>{
   farm.forEach((t,i)=>{
    heads.setMatrixAt(i,m4.compose(V3.set(t.x,t.y,t.z),q.setFromEuler(e.set(0,yaw,0)),sc.setScalar(t.rotor)));
@@ -92,6 +102,7 @@ export function createStructures({features,height,look,offshore=[]}){
   heads.instanceMatrix.needsUpdate=rotors.instanceMatrix.needsUpdate=true;
  };
  let spin=0;
+ if(nOff)placeFarm(0,0);   // placed once now, then every frame with the wind
  // face into the wind; spin from cut-in at 3 m/s up to ~16 rpm
  const update=(dt,wind,windSpeed)=>{
   const yaw=Math.atan2(wind.x,wind.y);           // rotor on the upwind side

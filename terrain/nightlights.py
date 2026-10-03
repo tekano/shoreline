@@ -23,7 +23,8 @@ from landcover import PBF, WEB, HERE, inside, project
 LIT = {'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified', 'living_street', 'road'}
 SPACING = {'service': 45}
 # turbine model by rated output: (hub height m, rotor diameter m)
-MODELS = {'3 MW': (75, 90), '3.6 MW': (84, 107), '5 MW': (90, 126), '7 MW': (111, 154), '8.25 MW': (111, 164)}
+MODELS = {'3 MW': (75, 90), '3.6 MW': (84, 107), '5 MW': (90, 126), '7 MW': (111, 154), '8.25 MW': (113, 164)}
+# (Walney Extension, from Orsted: 7 MW Siemens Gamesa 188 m to the tip, 8 MW MHI Vestas 195 m)
 
 
 class Roads(osmium.SimpleHandler):
