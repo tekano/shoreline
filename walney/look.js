@@ -327,6 +327,9 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
  const rockC=mix(color('#8e8a82'),color('#aaa69e'),grain);
  const aboveTide=y.sub(U.tide);
  const wet=float(1).sub(smoothstep(.25,1.8,aboveTide));               // flats still wet from the last tide
+ // the intertidal flats stay damp and dark between tides (red-brown in the photos); sand dries pale
+ // only above the high-water mark (~+4 m ODN) and well clear of the water
+ const dryF=smoothstep(1.2,3.,aboveTide).mul(smoothstep(3.2,4.8,y));
  const hwDist=seaField(p).w;                                           // metres inland of high water
  const beach=float(1).sub(smoothstep(12,40,hwDist));
  const hollow=smoothstep(.45,.6,F(p.mul(.02),.8));
@@ -334,9 +337,9 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
  const marshC=mix(mix(color('#454c3a'),color('#595f48'),patch),color('#605d41'),smoothstep(.55,.7,F(p.mul(.06),2.2)).mul(.6));
  const exposed=texture(expTex,p.sub(vec2(far.west,far.north)).div(vec2(far.w*far.res,far.hgt*far.res))).r;
  const estuaryC=mix(color('#5d605a'),color('#8a8676'),smoothstep(2.5,4.5,aboveTide));    // sheltered estuary flats: wet silver-grey
- const sandLike0=mix(wetSandC,drySandC,smoothstep(1.2,3.,aboveTide));
+ const sandLike0=mix(wetSandC,drySandC,dryF);
  const flatC=mix(estuaryC,sandLike0,exposed);                                             // exposed tidal flats are beach sand
- const sandLike=mix(wetSandC,drySandC,smoothstep(1.2,3.,aboveTide));
+ const sandLike=mix(wetSandC,drySandC,dryF);
  const duneC=mix(mix(marramC,slackC,hollow.mul(.6)),drySandC.mul(.82),smoothstep(.82,.7,up).mul(smoothstep(.68,.74,F(p.mul(.05),2.6))).mul(.8));
  // Real reflectance, measured against the pano under the physical light: plants return only
  // ~10% of visible light (the palette above is their colour; this is how much of it).
@@ -364,7 +367,7 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
  const ground0=Fn(()=>{
   // height rules: what the ground is where the map has nothing to say
   const R=k=>REFLECT[k]??REFLECT.bare;
-  const g=mix(wetSandC,drySandC,smoothstep(1.2,3.,aboveTide)).mul(R(1)).toVar();
+  const g=mix(wetSandC,drySandC,dryF).mul(R(1)).toVar();
   g.assign(mix(g,shingleC.mul(R(2)),smoothstep(2.6,3.4,y).mul(beach).mul(max(smoothstep(.55,.35,patch.add(grain.mul(.2))),.4))));
   const dune=float(1).sub(beach).mul(smoothstep(3.5,5,y));
   g.assign(mix(g,duneC.mul(R(3)),dune));

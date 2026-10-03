@@ -45,7 +45,7 @@ const saved=read();
 // (their scales changed: haze is now aerosol, exposure is stops around a metered EV)
 function lastFor(last={}){if(last.v&&last.v>='0.4')return last;const {haze,ev,exposure,contrast,saturation,blacks,skyGain,...keep}=last;return keep;}
 const presets={...meta.cameras,...saved};
-export const VERSION='0.7.0';   // bump with each release; shown in the panel title
+export const VERSION='0.7.1';   // bump with each release; shown in the panel title
 document.title=`Walney ${VERSION}`;$('version').textContent=`v${VERSION}`;
 const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1,saturation:1,blacks:0,stars:2.5,...DEFAULT,...lastFor(saved.__last)};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
@@ -169,16 +169,17 @@ if(photo){
   if(e.target.value==='')return;
   const P=await photo.load(+e.target.value);refActive='photo';
   const upd={label:`Photo ${P.label||P.file}`,motion:'locked',pitch:0,mm:+(24/(2*Math.tan(P.vfov*Math.PI/360))).toFixed(2)};
-  if(P.pos){upd.pos=[...P.pos];upd.eye=1.6;}
+  if(P.pos){upd.pos=[...P.pos];upd.eye=P.eye??1.6;}
   if(P.heading!=null)upd.heading=P.heading;
   if(P.pitch!=null)upd.pitch=P.pitch;
   if(P.tide!=null)upd.tide=P.tide;
+  for(const k of ['clouds','overcast','wind','haze'])if(P[k]!=null)upd[k]=P[k];   // that day's weather
   if(P.day){const sk=skyAt(2026,P.day,P.time);Object.assign(upd,{day:P.day,time:P.time,sunaz:Math.round(sk.sunAz),sunel:Math.round(sk.sunEl*4)/4});}
   Object.assign(state,upd);if($('pano-mode').value==='off')$('pano-mode').value='wipe';syncRef();apply();
  };
  // line the photo up with Heading, Pitch and Tide (and move if it had no GPS), then keep it (local dev server)
  $('photo-save').onclick=async()=>{const i=$('photo-ref').value;if(i==='')return;const P=photo.list[+i];
-  const fix={file:P.file,heading:state.heading,pitch:state.pitch,tide:state.tide,pos:[...state.pos]};
+  const fix={file:P.file,heading:state.heading,pitch:state.pitch,tide:state.tide,eye:state.eye,pos:[...state.pos],clouds:state.clouds,overcast:state.overcast,wind:state.wind,haze:state.haze};
   const r=await fetch('/__photofix',{method:'POST',body:JSON.stringify(fix)}).catch(()=>null);
   if(r&&r.ok){Object.assign(P,fix);$('photo-save').textContent='Saved ✓';setTimeout(()=>$('photo-save').textContent='Save fix',1500);}else $('photo-save').textContent='Needs the dev server';
  };
