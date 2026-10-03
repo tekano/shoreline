@@ -157,7 +157,7 @@ export function createSea({look}){
   if(!far)m.positionNode=posW;
   const state=()=>{
    const p=positionWorld.xz,f=seaField(p),bed=bedAt(p);
-   const runPhase=U.time.mul(1.15).add(F(p.mul(.004),.9).mul(9).add(F(p.mul(.0011),2.2).mul(7)));
+   const runPhase=U.time.mul(.115).add(F(p.mul(.004),.9).mul(9).add(F(p.mul(.0011),2.2).mul(7)));   // a slow surf beat (~1 min): the edge seeps, not jumps
    const run=pow(cos(runPhase).mul(.5).add(.5),3).mul(float(.06).add(U.swell.mul(.1))).mul(f.z.mul(.6).add(.4));
    // the swash: the water's real edge runs up the beach and drains back
    const surface=far?U.tide:positionWorld.y.sub(float(SWASH).mul(smoothstep(1.5,0,max(U.tide.sub(bed),0)))).add(run);
@@ -189,8 +189,11 @@ export function createSea({look}){
    const breakF=far?float(0):sh.breaking.mul(sh.wS),breakF2=far?float(0):sh.breaking2.mul(sh.wS);
    // where each breaking wave is: u=0 at its crest, just below 1 on the face
    // ahead of it, small just behind it where it has passed and left foam
-   const u1=far?float(.5):fract(sh.phS.div(6.2832)),u2=far?float(.5):fract(sh.phS2.div(6.2832));
-   const roller=u=>smoothstep(.8,.95,u).mul(float(1).sub(smoothstep(.988,1,u))).add(float(1).sub(smoothstep(0,.05,u)));
+   // ragged foam: the band's place in the wave wobbles with the water (metres-scale), so its edges and
+   // ends are torn, not ruled lines following the distance field's facets
+   const wob=F(p.mul(.22),1.4).sub(.5).mul(.07).add(V(p.mul(.8),.6).sub(.5).mul(.03));
+   const u1=far?float(.5):fract(sh.phS.div(6.2832).add(wob)),u2=far?float(.5):fract(sh.phS2.div(6.2832).sub(wob));
+   const roller=u=>smoothstep(.8,.95,u).add(float(1).sub(smoothstep(0,.05,u)));   // one band over the crest (no dark seam at the top)
    const trail=u=>exp(u.mul(-5.5));
    const active=smoothstep(.3,.6,F(p.mul(.018).add(vec2(U.time.mul(.01),0)),1.3)).mul(.5).add(.5);
    const seg1=far?float(0):sh.seg,seg2=far?float(0):sh.seg2;   // only the breaking pieces foam
