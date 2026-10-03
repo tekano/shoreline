@@ -21,11 +21,16 @@ export function createStructures({features,height,look,offshore=[]}){
   if(area<0)pts=[...pts].reverse();
   const base=Math.min(...pts.map(([x,z])=>height(x,z)))-.3,top=base+.3+b.h;
   const wall=WALL[b.k]||WALL.house,roof=ROOF[b.k]||ROOF.house;
-  const tint=.9+((pts[0][0]*7.3+pts[0][1]*3.1)%1+1)%1*.2;              // no two houses quite the same
-  const wc=wall.map(c=>c*tint),rc=roof.map(c=>c*tint);
+  // no two buildings alike: render, pebbledash, brick or painted walls; slate, tile or metal roofs
+  const hr=k=>((Math.sin(pts[0][0]*12.9898+pts[0][1]*78.233+k*37.7)*43758.5453)%1+1)%1;
+  const WALLS=b.k==='house'?[[.78,.75,.70],[.62,.58,.52],[.52,.36,.28],[.80,.80,.78],[.66,.64,.58]]:b.k==='industry'?[[.62,.64,.65],[.42,.46,.48],[.55,.58,.52],[.30,.33,.36]]:[wall];
+  const ROOFS=b.k==='house'?[[.33,.31,.31],[.42,.27,.22],[.26,.27,.29],[.48,.42,.36]]:b.k==='industry'?[[.55,.57,.58],[.40,.44,.47],[.30,.34,.30]]:[roof];
+  const tint=.85+hr(1)*.25;
+  const wc=WALLS[Math.floor(hr(2)*WALLS.length)].map(c=>c*tint),rc=ROOFS[Math.floor(hr(3)*ROOFS.length)].map(c=>c*tint);
+  const wl=wc.map(c=>c*.7);                                                            // grime and shade low down
   for(let i=0;i<pts.length;i++){
    const [x0,z0]=pts[i],[x1,z1]=pts[(i+1)%pts.length];
-   const a=v(x0,base,z0,wc),bb=v(x1,base,z1,wc),c=v(x1,top,z1,wc),d=v(x0,top,z0,wc);
+   const a=v(x0,base,z0,wl),bb=v(x1,base,z1,wl),c=v(x1,top,z1,wc),d=v(x0,top,z0,wc);
    idx.push(a,c,bb,a,d,c);
   }
   const contour=pts.map(([x,z])=>new THREE.Vector2(x,z));

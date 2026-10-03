@@ -38,12 +38,12 @@ function bush(seed){
  return g;
 }
 
-export function createBushes({spots,height,look}){
+export function createBushes({spots,height,look,radius=1500,cap=12000,tall=1,light=1}){
  const group=new THREE.Group(),n=spots.length/3;
  const mat=new THREE.MeshStandardNodeMaterial({roughness:.9,metalness:0});
  // dark olive foliage, lighter on top where it meets the sun, each bush its own shade
  const up=smoothstep(-.2,.9,normalWorld.y);
- const leaf=mix(vec3(.016,.022,.011),vec3(.05,.058,.026),up).mul(hash(instanceIndex).mul(.5).add(.75));
+ const leaf=mix(vec3(.016,.022,.011),vec3(.05,.058,.026),up).mul(hash(instanceIndex).mul(.5).add(.75)).mul(light);
  // foliage: a dense leafy grain and deep gaps, so the crown reads as twigs and leaves, not a smooth skin
  const lq=positionLocal.mul(9).add(hash(instanceIndex).mul(30));
  const leafy=look.F(lq.xz.add(lq.y.mul(.6)),.3).mul(.55).add(look.V(lq.xy.mul(2.3),1.7).mul(.45));
@@ -51,24 +51,26 @@ export function createBushes({spots,height,look}){
  const gaps=smoothstep(.3,.55,leafy).mul(.7).add(.3).mul(smoothstep(-.05,.6,positionLocal.y).mul(.5).add(.5));
  const speck=smoothstep(.55,.8,look.F(positionWorld.xz.mul(3.1).add(positionWorld.y.mul(2)),1.3));
  mat.colorNode=mix(leaf,leaf.mul(1.6),speck.mul(.5)).mul(gaps).mul(look.cloudShade(positionWorld));
- const KINDS=6,CAP=12000;
+ const KINDS=6,CAP=cap;
  const meshes=Array.from({length:KINDS},(_,k)=>{const m=new THREE.InstancedMesh(bush(k+1),mat,CAP/KINDS);m.frustumCulled=false;group.add(m);return m;});
  const ys=new Float32Array(n);for(let i=0;i<n;i++)ys[i]=height(spots[i*3],spots[i*3+1]);
  const m4=new THREE.Matrix4(),q=new THREE.Quaternion(),e=new THREE.Euler(),t=new THREE.Vector3(),sc=new THREE.Vector3(),zero=new THREE.Matrix4().makeScale(0,0,0);
  let at=null;
  const update=camera=>{
-  const cx=camera.position.x,cz=camera.position.z,R=1500;
+  const cx=camera.position.x,cz=camera.position.z,R=radius;
   if(at&&Math.hypot(cx-at[0],cz-at[1])<200)return;
   at=[cx,cz];
   const fill=new Array(KINDS).fill(0);
-  for(let i=0;i<n;i++){
-   const x=spots[i*3],z=spots[i*3+1];
-   if(Math.abs(x-cx)>R||Math.abs(z-cz)>R)continue;
+  // nearest first, so a dense town far off never crowds out the trees close by
+  const near=[];for(let i=0;i<n;i++){const dx=spots[i*3]-cx,dz=spots[i*3+1]-cz;if(Math.abs(dx)<R&&Math.abs(dz)<R)near.push(i,dx*dx+dz*dz);}
+  const order=Array.from({length:near.length/2},(_,j)=>j).sort((a,b)=>near[a*2+1]-near[b*2+1]);
+  for(const j of order){
+   const i=near[j*2],x=spots[i*3],z=spots[i*3+1];
    const k=i%KINDS;if(fill[k]>=CAP/KINDS)continue;
    const size=spots[i*3+2];
    // crowns turned downwind, with a little spread; sunk a touch into the ground
    q.setFromEuler(e.set(0,-DOWNWIND+Math.PI/2+Math.sin(i*3.7)*.35,0));
-   meshes[k].setMatrixAt(fill[k]++,m4.compose(t.set(x,ys[i]-.1*size,z),q,sc.set(size,size*(.85+Math.cos(i*5.1)*.15),size)));
+   meshes[k].setMatrixAt(fill[k]++,m4.compose(t.set(x,ys[i]-.1*size,z),q,sc.set(size,size*tall*(.85+Math.cos(i*5.1)*.15),size)));
   }
   meshes.forEach((m,k)=>{for(let j=fill[k];j<CAP/KINDS;j++)m.setMatrixAt(j,zero);m.instanceMatrix.needsUpdate=true;});
  };

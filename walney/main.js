@@ -52,7 +52,7 @@ const saved=read();
 // (their scales changed: haze is now aerosol, exposure is stops around a metered EV)
 function lastFor(last={}){if(last.v&&last.v>='0.4')return last;const {haze,ev,exposure,contrast,saturation,blacks,skyGain,...keep}=last;return keep;}
 const presets={...meta.cameras,...saved};
-export const VERSION='0.8.2';   // bump with each release; shown in the panel title
+export const VERSION='0.8.3';   // bump with each release; shown in the panel title
 document.title=`Walney ${VERSION}`;$('version').textContent=`v${VERSION}`;
 const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1,saturation:1,blacks:0,stars:2.5,...DEFAULT,...lastFor(saved.__last)};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
@@ -162,7 +162,7 @@ const rocks=createRocks({data:new Float32Array(await (await fetch('./data/armour
 // bushes: wind-sculpted hawthorn and scrub (OSM scrub and woodland, and singly over dunes and grass)
 const bushes=(()=>{
  if(!landcover)return null;
- const N=meta.near,P={6:.12,9:.12,3:.004,8:.002,13:.004,7:.004};   // per 16 m2 cell
+ const N=meta.near,P={3:.004,8:.002,13:.004,7:.004};   // per 16 m2 cell (scrub and woods are with the trees)
  let s=12345;const rnd=()=>((s=(Math.imul(s,1664525)+1013904223)>>>0)/4294967296);
  const out=[];
  for(let j=0;j<N.size[1];j++)for(let i=0;i<N.size[0];i++){
@@ -175,6 +175,31 @@ const bushes=(()=>{
  return createBushes({spots:new Float32Array(out),height,look});
 })();
 if(bushes)scene.add(bushes.group);
+// trees: belts round buildings and their gardens, and hedgerows along mapped hedges (OSM).
+// From a distance the town is mostly trees with roofs showing through, as in the pano.
+const trees=(()=>{
+ let s=777;const rnd=()=>((s=(Math.imul(s,1664525)+1013904223)>>>0)/4294967296);
+ const road=landcover?(x,z)=>{const c=landcover.classAt(x,z);return c===20||c===24;}:()=>false;
+ const ok=(x,z)=>{if(road(x,z))return false;if(height(x,z)<5)return false;if(armourAt){const [ad,pr]=armourAt(x,z);if(ad<15||pr>100)return false;}return true;};
+ const out=[];
+ for(const b of features.buildings){
+  const p=b.p;let cx=0,cz=0;for(const [x,z] of p){cx+=x;cz+=z;}cx/=p.length;cz/=p.length;
+  let r=0;for(const [x,z] of p)r=Math.max(r,Math.hypot(x-cx,z-cz));
+  const n=Math.min(10,Math.round((r*2*Math.PI)/9*(b.k==='industry'?.5:1)));
+  for(let i=0;i<n*1.6;i++){const a=rnd()*6.283,d=r+3+rnd()*22,x=cx+Math.cos(a)*d,z=cz+Math.sin(a)*d;if(ok(x,z))out.push(x,z,3+rnd()*4);}
+ }
+ for(const f of features.fences){
+  if(f.type!=='hedge')continue;
+  for(let i=1;i<f.line.length;i++){const [x0,z0]=f.line[i-1],[x1,z1]=f.line[i],L=Math.hypot(x1-x0,z1-z0);
+   for(let t=rnd()*3;t<L;t+=2.5+rnd()*2){const x=x0+(x1-x0)*t/L,z=z0+(z1-z0)*t/L;if(ok(x,z))out.push(x,z,(rnd()<.12?2.6+rnd()*2.4:1.2+rnd()*.8));}}
+ }
+ // woodland and scrub from OpenStreetMap
+ if(landcover){const N=meta.near,P={9:.14,6:.07};
+  for(let j=0;j<N.size[1];j+=2)for(let i=0;i<N.size[0];i+=2){const x=N.west+(i+rnd()*2)*N.res,z=N.north+(j+rnd()*2)*N.res,c=landcover.classAt(x,z),p=P[c];
+   if(!p||rnd()>p*4)continue;if(ok(x,z))out.push(x,z,c===9?3.5+rnd()*4:1.6+rnd()*2);}}
+ return createBushes({spots:new Float32Array(out),height,look,radius:4500,cap:30000,tall:1.35,light:1.9});
+})();
+scene.add(trees.group);
 const lights=createLights({lamps:lampList,look});scene.add(lights.mesh);const bufSize=new THREE.Vector2();
 // reference pano overlay (local only: the photo is private and not in the repo)
 const pano=await createPanoRef('sandscale');
@@ -381,8 +406,8 @@ function panHeading(now){
  return state.heading;
 }
 let lastT=0;
-renderer.setAnimationLoop(t=>{const dt=Math.min(.1,(t-lastT)/1000);lastT=t;pano?.follow(camera);lights.update(camera,renderer.getDrawingBufferSize(bufSize).y);rocks.update(camera);bushes?.update(camera);if(photo)photo.U.view.value=bufSize.x/Math.max(bufSize.y,1);U.time.value=t/1000;structures.update(dt,U.wind.value,U.windSpeed.value);
+renderer.setAnimationLoop(t=>{const dt=Math.min(.1,(t-lastT)/1000);lastT=t;pano?.follow(camera);lights.update(camera,renderer.getDrawingBufferSize(bufSize).y);rocks.update(camera);bushes?.update(camera);trees.update(camera);if(photo)photo.U.view.value=bufSize.x/Math.max(bufSize.y,1);U.time.value=t/1000;structures.update(dt,U.wind.value,U.windSpeed.value);
  if(state.motion!=='locked'&&!aim)camera.rotation.set(state.pitch*Math.PI/180,-panHeading(t/1000)*Math.PI/180,0,'YXZ');const r=view.getBoundingClientRect();if(r.width&&r.height)draw();});
 // dev: render one frame and save it through tools/serve.py (captures/, git-ignored)
-async function capture(name='walney.png'){pano?.follow(camera);rocks.update(camera);bushes?.update(camera);if(photo)photo.U.view.value=renderer.domElement.width/renderer.domElement.height;drawNow();const blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/png'));await fetch(`/__capture?name=${encodeURIComponent(name)}`,{method:'POST',body:blob});return name;}
+async function capture(name='walney.png'){pano?.follow(camera);rocks.update(camera);bushes?.update(camera);trees.update(camera);if(photo)photo.U.view.value=renderer.domElement.width/renderer.domElement.height;drawNow();const blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/png'));await fetch(`/__capture?name=${encodeURIComponent(name)}`,{method:'POST',body:blob});return name;}
 window.walney={state,apply,height,meta,capture,grass,look,scene,water,terrain,structures,pano};
