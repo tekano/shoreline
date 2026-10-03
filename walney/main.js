@@ -9,7 +9,7 @@ import {createSea} from './sea.js';
 import {skyAt} from './sky-clock.js';
 import {createStructures} from './structures.js';
 import {createPanoRef} from './pano-ref.js';
-import {makeNoiseTexture} from '../src/noise.js?v=1.3.0';
+import {makeNoiseTexture,makeDetailNoiseTexture} from '../src/noise.js?v=1.4.0';
 
 // Terrain blockout of a real place: LiDAR heights around a camera you place on
 // a top-down map. Scene frame: metres, x east, y up (m above Ordnance Datum
@@ -44,7 +44,7 @@ const saved=read();
 // (their scales changed: haze is now aerosol, exposure is stops around a metered EV)
 function lastFor(last={}){if(last.v&&last.v>='0.4')return last;const {haze,ev,exposure,contrast,saturation,blacks,skyGain,...keep}=last;return keep;}
 const presets={...meta.cameras,...saved};
-export const VERSION='0.6.6';   // bump with each release; shown in the panel title
+export const VERSION='0.6.7';   // bump with each release; shown in the panel title
 document.title=`Walney ${VERSION}`;$('version').textContent=`v${VERSION}`;
 const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1,saturation:1,blacks:0,stars:2.5,...DEFAULT,...lastFor(saved.__last)};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
@@ -87,7 +87,7 @@ const haze=new THREE.Color('#a9c1db');
 
 // the look (sky, ground, sea) lives in look.js; U.tint switches clay ↔ colour
 const landcover=await loadLandcover(meta);
-const look=createLook({noiseTex:makeNoiseTexture(),far,near,tide:state.tide,landcover});
+const look=createLook({noiseTex:makeNoiseTexture(),detailTex:makeDetailNoiseTexture(),far,near,tide:state.tide,landcover});
 const atmo=look.atmo;
 // the camera's 'daylight' white balance: neutral under a summer noon sun and sky (fixed, so
 // sunsets stay warm and twilight blue, as in a photo)

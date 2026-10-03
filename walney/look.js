@@ -8,7 +8,7 @@ import {Fn,uniform,float,vec2,vec3,vec4,color,texture,mix,smoothstep,max,min,abs
 // with cumulus and their moving shadows, light haze, wet sand that mirrors the
 // clouds, a shingle bank, marram dunes, grey-olive saltmarsh, and a sea whose
 // breakers and swash follow the real waterline at whatever the tide is.
-export function createLook({noiseTex,far,near,tide,landcover}){
+export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
  const U={
   sun:uniform(new THREE.Vector3(0,1,0)),time:uniform(0),tide:uniform(tide),tint:uniform(1),
   wind:uniform(new THREE.Vector2(.87,-.5)),windSpeed:uniform(7),   // m/s; blowing toward the ENE (a south-westerly, onshore here)
@@ -27,11 +27,12 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  const rot=(p,a)=>vec2(p.x.mul(Math.cos(a)).sub(p.y.mul(Math.sin(a))),p.x.mul(Math.sin(a)).add(p.y.mul(Math.cos(a))));
  const F=(p,a=0)=>noise(rot(p,a).mul(1/8)).r;   // ~1 cycle per unit, four octaves
  const V=(p,a=0)=>noise(rot(p,a).mul(1/48)).g;
- // untiled versions: the tile read twice, the second at the golden ratio of scale, turned and
- // shifted, so the two never line up again and the lattice's grid averages out (for textures
- // seen over wide areas: sand grain, foam)
- const Fq=(p,a=0)=>F(p,a).add(F(p.mul(1.618).add(37.3),a+2.1)).sub(1).mul(.71).add(.5);
- const Vq=(p,a=0)=>V(p,a).add(V(p.mul(1.618).add(19.7),a+1.3)).sub(1).mul(.71).add(.5);
+ // for textures seen over wide areas (sand grain, foam): gradient noise, which has no lattice
+ // lines (src/noise.js makeDetailNoiseTexture), read twice, the second at the golden ratio of
+ // scale, turned and shifted, so the tile never visibly repeats. Same mean and spread as F and V.
+ const dn=uv=>texture(detailTex,uv);
+ const Fq=(p,a=0)=>dn(rot(p,a).mul(1/8)).r.add(dn(rot(p.mul(1.618).add(37.3),a+2.1).mul(1/8)).r).sub(.924).mul(.71).add(.462);
+ const Vq=(p,a=0)=>dn(rot(p,a).mul(1/48)).g.add(dn(rot(p.mul(1.618).add(19.7),a+1.3).mul(1/48)).g).sub(1).mul(.71).add(.5);
 
  // ---------- wind ----------
  // One gust field for everything that moves in the wind: ~80 m wide gusts
@@ -281,7 +282,8 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  const ground=new THREE.MeshPhysicalNodeMaterial({roughness:.95});
  const y=positionWorld.y,up=normalWorld.y,p=positionWorld.xz;
  const range=cameraPosition.sub(positionWorld).length();
- const grain=Fq(p.mul(.9),.2),patch=F(p.mul(.012),1.3);
+ // sand grain, its strength varying over ~100 m so there is no even field to spot a repeat in
+ const grain=mix(float(.46),Fq(p.mul(.9),.2),smoothstep(.3,.7,F(p.mul(.01),.6)).mul(.9).add(.35)),patch=F(p.mul(.012),1.3);
  const wetSandC=mix(color('#86705c'),color('#a3896c'),grain);         // warm ochre-tan of the wet beach (West Shore photo)
  const drySandC=mix(color('#c9b493'),color('#d8c6a3'),grain);
  const shingleC=mix(color('#8d877e'),color('#b9b5ad'),V(p.mul(3.1),.7)); // cobbles: grey with pale stones
