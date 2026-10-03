@@ -165,10 +165,9 @@ export function createSea({look}){
   if(!far)m.positionNode=posW;
   const state=()=>{
    const p=positionWorld.xz,f=seaField(p),bed=bedAt(p);
-   // the edge: a slow seep (surf beat, ~55 s) and a small quick lap (~7 s) that runs along the shore
+   // the edge: a slow seep (surf beat, ~55 s), so the water creeps up the sand and drains back
    const runPhase=U.time.mul(.115).add(F(p.mul(.004),.9).mul(9).add(F(p.mul(.0011),2.2).mul(7)));
-   const lapPhase=U.time.mul(.9).add(F(p.mul(.02),1.7).mul(14)).add(dot(p,vec2(.05,.03)));
-   const run=pow(cos(runPhase).mul(.5).add(.5),3).add(pow(cos(lapPhase).mul(.5).add(.5),2).mul(.3)).mul(float(.06).add(U.swell.mul(.1))).mul(f.z.mul(.6).add(.4));
+   const run=pow(cos(runPhase).mul(.5).add(.5),3).mul(float(.06).add(U.swell.mul(.1))).mul(f.z.mul(.6).add(.4));
    // the swash: the water's real edge runs up the beach and drains back
    const surface=far?U.tide:positionWorld.y.sub(float(SWASH).mul(smoothstep(1.5,0,max(U.tide.sub(bed),0)))).add(run);
    const signed=surface.sub(bed);
@@ -216,7 +215,12 @@ export function createSea({look}){
    const surf=laceFoam(p,max(surfCov,capsCov),fw);
    const lace=smoothstep(.42,.62,F(p.mul(vec2(1.4,2.2)).add(U.time.mul(.12)),1.7).mul(.6).add(V(p.mul(6),.9).mul(.4)));
    const edge=smoothstep(0,.006,signed).mul(float(1).sub(smoothstep(.012,.05,signed))).mul(lace.mul(.8).add(.2));
-   const bubbles=smoothstep(.04,.12,depth).mul(float(1).sub(smoothstep(.25,.6,depth))).mul(smoothstep(.72,.82,V(p.mul(9),.3).mul(.6).add(V(p.mul(23),1.3).mul(.4)))).mul(.35);   // fine scattered bubbles
+   // scattered bubbles in the thin water: dots at Worley points (no repeating tile), only in
+   // irregular patches ~15 m across that drift with the water
+   const bq=p.add(normalize(U.wind).mul(U.time.mul(.12)));
+   const bubbleDots=smoothstep(.2,.09,worley(bq.mul(2.6).add(vec2(F(bq.mul(.3),.4),F(bq.mul(.3),1.7)).mul(2))));
+   const bubblePatch=smoothstep(.55,.75,F(bq.mul(.065),2.4).mul(.7).add(F(bq.mul(.21),.9).mul(.3)));
+   const bubbles=smoothstep(.04,.12,depth).mul(float(1).sub(smoothstep(.25,.6,depth))).mul(bubbleDots).mul(bubblePatch).mul(smoothstep(.06,.02,fw)).mul(.35);
    const foam=clamp(max(max(surf,edge),bubbles),0,1).toVar();
    // body: silty sand-grey in the shallows, teal, deep blue-grey; lit by sun and sky
    const body=mix(color('#8c8770'),color('#6f7e72'),smoothstep(.15,1.2,depth)).toVar();
