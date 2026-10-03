@@ -152,9 +152,12 @@ export function createSea({look}){
   // aerated: cells of clear water open up in the foam (Worley), more as it thins, and 10 m blotches
   // vary how dense it is, so it is never a solid white sheet
   const blot=smoothstep(.25,.75,F(q.mul(.09),.8));
-  const cellD=worley(q.mul(.55)).mul(.65).add(worley(q.mul(1.6)).mul(.35));
-  const holes=smoothstep(mix(.42,.2,cov.mul(blot.mul(.6).add(.4))),mix(.52,.3,cov),cellD);
-  const near=max(sheet,thread.mul(mix(.25,1,brk))).mul(smoothstep(.03,.14,cov)).mul(mix(.35,1,holes)).mul(blot.mul(.45).add(.55));
+  // three cell sizes (~5, 1.8, 0.6 m) on a warped grid: big irregular holes, no visible repeat
+  const qw=q.add(vec2(F(q.mul(.05),.3),F(q.mul(.05),2.2)).sub(.5).mul(14));
+  const cellD=worley(qw.mul(.2)).mul(.5).add(worley(qw.mul(.55).add(3.1)).mul(.3)).add(worley(qw.mul(1.6).add(7.7)).mul(.2));
+  // even fresh foam at the breaking edge is torn (small holes); older, thinner foam opens right up
+  const holes=smoothstep(mix(.5,.3,cov.mul(blot.mul(.5).add(.5))),mix(.6,.4,cov),cellD);
+  const near=max(sheet,thread.mul(mix(.25,1,brk))).mul(smoothstep(.03,.14,cov)).mul(mix(.12,1,holes)).mul(blot.mul(.45).add(.55));
   return mix(near,smoothstep(.04,.6,cov).mul(.7),smoothstep(.04,.18,fw));   // far away: the foam's average (holes included)
  };
  const make=({far})=>{
@@ -162,8 +165,8 @@ export function createSea({look}){
   if(!far)m.positionNode=posW;
   const state=()=>{
    const p=positionWorld.xz,f=seaField(p),bed=bedAt(p);
-   // the edge: a slow seep (surf beat, ~27 s) and a small quick lap (~7 s) that runs along the shore
-   const runPhase=U.time.mul(.23).add(F(p.mul(.004),.9).mul(9).add(F(p.mul(.0011),2.2).mul(7)));
+   // the edge: a slow seep (surf beat, ~55 s) and a small quick lap (~7 s) that runs along the shore
+   const runPhase=U.time.mul(.115).add(F(p.mul(.004),.9).mul(9).add(F(p.mul(.0011),2.2).mul(7)));
    const lapPhase=U.time.mul(.9).add(F(p.mul(.02),1.7).mul(14)).add(dot(p,vec2(.05,.03)));
    const run=pow(cos(runPhase).mul(.5).add(.5),3).add(pow(cos(lapPhase).mul(.5).add(.5),2).mul(.3)).mul(float(.06).add(U.swell.mul(.1))).mul(f.z.mul(.6).add(.4));
    // the swash: the water's real edge runs up the beach and drains back
@@ -229,7 +232,7 @@ export function createSea({look}){
    const col=mix(body,skyRefl(reflect(eye.negate(),n)).mul(.85),fres).toVar();
    // sun glitter: a statistical path that widens with roughness...
    const hS=normalize(U.sun.add(eye)),nh=max(dot(n,hS),.001),nh2=nh.mul(nh);
-   const sig2=float(.0012).add(rough.mul(.012));
+   const sig2=float(.0008).add(rough.mul(.006));   // a narrower glitter path
    const D=exp(float(1).sub(nh2).div(nh2).div(sig2).negate()).div(sig2.mul(3.1416).mul(nh2).mul(nh2));
    const Fh=float(.02).add(pow(float(1).sub(max(dot(hS,eye),0)),5).mul(.98));
    const clearSky=pow(float(1).sub(U.overcast),2);   // glitter needs a sun to glitter in
@@ -237,7 +240,7 @@ export function createSea({look}){
    // ...and individual glints sparkling in it, as in reality-js
    const need=vec2(hS.x.div(hS.y),hS.z.div(hS.y)).sub(vec2(n.x.div(n.y),n.z.div(n.y))).negate();
    // facets barely tilted: the waves' own slope decides where they flash, so glints ride the wave faces
-   const gl=glints(p,need,fw,sqrt(sig2).mul(1.2).add(.04),float(.45));
+   const gl=glints(p,need,fw,sqrt(sig2).mul(.9).add(.03),float(.45));
    col.addAssign(U.sunLight.mul(gl.mul(27)).mul(float(1).sub(foam)).mul(shadeS).mul(clearSky).mul(smoothstep(0,.06,U.sun.y)).mul(mix(.5,1.2,smoothstep(6,80,range))));
    const foamLit=vec3(.93).mul(U.sunLight.mul(max(U.sun.y,0)).mul(shadeS).mul(.3).add(U.skyAmb.mul(1.3)));
    col.assign(mix(col,foamLit,foam));
