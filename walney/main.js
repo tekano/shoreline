@@ -17,6 +17,11 @@ import {makeNoiseTexture,makeDetailNoiseTexture} from '../src/noise.js?v=1.4.0';
 // a top-down map. Scene frame: metres, x east, y up (m above Ordnance Datum
 // Newlyn), z south, origin at meta.origin_osgb on the British National Grid.
 const $=id=>document.getElementById(id);
+// the panel's width: drag its right edge; remembered in this browser
+{const app=document.getElementById('app'),grip=document.getElementById('grip');
+ const set=w=>{w=Math.min(Math.max(w,300),760);app.style.setProperty('--side',w+'px');grip.style.left=w+'px';return w;};
+ try{set(+localStorage.getItem('walney.side')||380);}catch{set(380);}
+ grip.addEventListener('pointerdown',e=>{grip.setPointerCapture(e.pointerId);const mv=ev=>set(ev.clientX),up=ev=>{grip.removeEventListener('pointermove',mv);grip.removeEventListener('pointerup',up);try{localStorage.setItem('walney.side',String(set(ev.clientX)));}catch{}};grip.addEventListener('pointermove',mv);grip.addEventListener('pointerup',up);});}
 const STORE='walney.cameras';
 const read=()=>{try{return JSON.parse(localStorage.getItem(STORE)||'{}');}catch{return {};}};
 const write=v=>{try{localStorage.setItem(STORE,JSON.stringify(v));}catch{}};
@@ -46,7 +51,7 @@ const saved=read();
 // (their scales changed: haze is now aerosol, exposure is stops around a metered EV)
 function lastFor(last={}){if(last.v&&last.v>='0.4')return last;const {haze,ev,exposure,contrast,saturation,blacks,skyGain,...keep}=last;return keep;}
 const presets={...meta.cameras,...saved};
-export const VERSION='0.7.2';   // bump with each release; shown in the panel title
+export const VERSION='0.7.3';   // bump with each release; shown in the panel title
 document.title=`Walney ${VERSION}`;$('version').textContent=`v${VERSION}`;
 const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1,saturation:1,blacks:0,stars:2.5,...DEFAULT,...lastFor(saved.__last)};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
@@ -166,7 +171,7 @@ if(pano){
  $('pano-go').onclick=()=>{refActive='pano';Object.assign(state,{pos:[...pano.info.pos],eye:pano.info.eye,pitch:0,label:'Sandscale pano spot',motion:'locked'});if($('pano-mode').value==='off')$('pano-mode').value='wipe';syncRef();apply();};
 }else $('pano-go').hidden=true;
 if(photo){
- overlay.add(photo.mesh);$('photo-row').hidden=false;
+ overlay.add(photo.mesh);$('photo-row').hidden=false;$('photo-buttons').hidden=false;
  $('photo-ref').innerHTML='<option value="">Choose a photo…</option>'+photo.list.map((P,i)=>`<option value="${i}">${P.label||P.file}${P.pos?'':' (no GPS)'}</option>`).join('');
  $('photo-ref').onchange=async e=>{
   if(e.target.value==='')return;

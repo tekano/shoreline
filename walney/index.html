@@ -7,12 +7,14 @@
  :root{--panel:#141a1d;--ink:#dfe6e3;--dim:#8d9a98;--accent:#e9a23b;--line:#2b3438}
  *{box-sizing:border-box}
  html,body{margin:0;height:100%;background:#0d1214;color:var(--ink);font:13px/1.4 system-ui,sans-serif;overflow:hidden}
- #app{display:grid;grid-template-columns:340px 1fr;height:100%}
+ #app{display:grid;grid-template-columns:var(--side,380px) 1fr;height:100%}
+ #grip{position:absolute;top:0;bottom:0;width:6px;margin-left:-3px;cursor:col-resize;z-index:5}
+ #grip:hover{background:#e9a23b55}
  aside{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
  #map{width:100%;flex:1;min-height:200px;cursor:crosshair;display:block;touch-action:none}
- .controls{padding:10px 12px;border-top:1px solid var(--line);display:grid;gap:6px;overflow:auto;max-height:52%}
- .row{display:grid;grid-template-columns:96px 1fr 52px;align-items:center;gap:8px}
- .row output{text-align:right;color:var(--dim);font-variant-numeric:tabular-nums}
+ .controls{padding:10px 12px;border-top:1px solid var(--line);display:grid;gap:6px;overflow:auto;max-height:64%}
+ .row{display:grid;grid-template-columns:96px minmax(0,1fr) auto;align-items:center;gap:8px}
+ .row output{text-align:right;color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap;min-width:52px}
  input[type=range]{width:100%;accent-color:var(--accent)}
  select,button{background:#222b2f;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:inherit}
  button:hover,select:hover{border-color:var(--accent)}
@@ -27,6 +29,7 @@
  @media (max-width:760px){#app{grid-template-columns:1fr;grid-template-rows:45% 55%}aside{order:2}}
 </style></head>
 <body><div id="app">
+<div id="grip" title="Drag to widen the panel"></div>
 <aside>
  <h1>Walney <span id="version" style="opacity:.6;font-weight:400"></span></h1>
  <p class="hint">Click the map to place the camera, drag from it to aim. Wheel zooms the map, right-drag pans. Drag the 3D view to look around.</p>
@@ -62,7 +65,8 @@
    <div class="row"><label for="pano-amount">Ref amount</label><input id="pano-amount" type="range" min="0" max="1" step="0.005" value="0.5"><output id="pano-amount-v"></output></div>
    <div class="row"><label for="pano-yaw">Ref yaw °</label><input id="pano-yaw" type="range" min="-6" max="6" step="0.05" value="0"><output id="pano-yaw-v"></output></div>
    <div class="row"><label for="pano-pitch">Ref pitch °</label><input id="pano-pitch" type="range" min="-3" max="3" step="0.05" value="0"><output id="pano-pitch-v"></output></div>
-   <div class="row" id="photo-row" hidden><label for="photo-ref">Photo ref</label><select id="photo-ref"></select><button id="photo-save" title="Store this photo's heading, pitch, tide and place (local dev server)">Save fix</button></div>
+   <div class="row" id="photo-row" hidden><label for="photo-ref">Photo ref</label><select id="photo-ref" style="grid-column:span 2"></select></div>
+   <div class="buttons" id="photo-buttons" hidden><button id="photo-save" title="Store this photo's place, aim, eye height, tide and weather (local dev server)">Save fix</button></div>
    <div class="buttons"><button id="pano-go">Stand at pano spot</button></div>
   </div>
   <div class="buttons"><button id="shot">Capture frame</button><button id="save">Save view</button><button id="copy">Copy camera JSON</button><button id="download">Download cameras</button></div>
