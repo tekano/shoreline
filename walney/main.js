@@ -9,6 +9,7 @@ import {createSea} from './sea.js';
 import {skyAt} from './sky-clock.js';
 import {createStructures} from './structures.js';
 import {createPanoRef} from './pano-ref.js';
+import {createPhotoRef} from './photo-ref.js';
 import {makeNoiseTexture,makeDetailNoiseTexture} from '../src/noise.js?v=1.4.0';
 
 // Terrain blockout of a real place: LiDAR heights around a camera you place on
@@ -44,7 +45,7 @@ const saved=read();
 // (their scales changed: haze is now aerosol, exposure is stops around a metered EV)
 function lastFor(last={}){if(last.v&&last.v>='0.4')return last;const {haze,ev,exposure,contrast,saturation,blacks,skyGain,...keep}=last;return keep;}
 const presets={...meta.cameras,...saved};
-export const VERSION='0.6.17';   // bump with each release; shown in the panel title
+export const VERSION='0.7.0';   // bump with each release; shown in the panel title
 document.title=`Walney ${VERSION}`;$('version').textContent=`v${VERSION}`;
 const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1,saturation:1,blacks:0,stars:2.5,...DEFAULT,...lastFor(saved.__last)};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
@@ -144,14 +145,45 @@ const lampList=[...structures.lamps,
 const lights=createLights({lamps:lampList,look});scene.add(lights.mesh);const bufSize=new THREE.Vector2();
 // reference pano overlay (local only: the photo is private and not in the repo)
 const pano=await createPanoRef('sandscale');
-if(pano){
- overlay.add(pano.mesh);pano.mesh.visible=false;$('pano-rows').hidden=false;
- const sync=()=>{const m=$('pano-mode').value;pano.mesh.visible=m!=='off';pano.U.mode.value=m==='wipe'?1:0;
-  pano.U.amount.value=+$('pano-amount').value;pano.U.yaw.value=+$('pano-yaw').value;pano.U.pitch.value=+$('pano-pitch').value;
-  $('pano-amount-v').textContent=(+$('pano-amount').value).toFixed(2);$('pano-yaw-v').textContent=(+$('pano-yaw').value).toFixed(2);$('pano-pitch-v').textContent=(+$('pano-pitch').value).toFixed(2);};
- for(const id of ['pano-mode','pano-amount','pano-yaw','pano-pitch'])$(id).oninput=sync;sync();
- $('pano-go').onclick=()=>{Object.assign(state,{pos:[...pano.info.pos],eye:pano.info.eye,pitch:0,label:'Sandscale pano spot',motion:'locked'});if($('pano-mode').value==='off')$('pano-mode').value='wipe';sync();apply();};
+// reference photos: stand where each was taken, face its way, its lens, its moment (terrain/photos.py)
+const photo=await createPhotoRef();
+let refActive='pano';
+const syncRef=()=>{
+ const m=$('pano-mode').value,mode=m==='wipe'?1:0,amt=+$('pano-amount').value;
+ if(pano){pano.mesh.visible=m!=='off'&&refActive==='pano';pano.U.mode.value=mode;pano.U.amount.value=amt;pano.U.yaw.value=+$('pano-yaw').value;pano.U.pitch.value=+$('pano-pitch').value;}
+ if(photo){photo.mesh.visible=m!=='off'&&refActive==='photo';photo.U.mode.value=mode;photo.U.amount.value=amt;}
+ $('pano-amount-v').textContent=amt.toFixed(2);$('pano-yaw-v').textContent=(+$('pano-yaw').value).toFixed(2);$('pano-pitch-v').textContent=(+$('pano-pitch').value).toFixed(2);
+};
+if(pano||photo){
+ $('pano-rows').hidden=false;
+ for(const id of ['pano-mode','pano-amount','pano-yaw','pano-pitch'])$(id).oninput=syncRef;
 }
+if(pano){
+ overlay.add(pano.mesh);pano.mesh.visible=false;
+ $('pano-go').onclick=()=>{refActive='pano';Object.assign(state,{pos:[...pano.info.pos],eye:pano.info.eye,pitch:0,label:'Sandscale pano spot',motion:'locked'});if($('pano-mode').value==='off')$('pano-mode').value='wipe';syncRef();apply();};
+}else $('pano-go').hidden=true;
+if(photo){
+ overlay.add(photo.mesh);$('photo-row').hidden=false;
+ $('photo-ref').innerHTML='<option value="">Choose a photo…</option>'+photo.list.map((P,i)=>`<option value="${i}">${P.label||P.file}${P.pos?'':' (no GPS)'}</option>`).join('');
+ $('photo-ref').onchange=async e=>{
+  if(e.target.value==='')return;
+  const P=await photo.load(+e.target.value);refActive='photo';
+  const upd={label:`Photo ${P.label||P.file}`,motion:'locked',pitch:0,mm:+(24/(2*Math.tan(P.vfov*Math.PI/360))).toFixed(2)};
+  if(P.pos){upd.pos=[...P.pos];upd.eye=1.6;}
+  if(P.heading!=null)upd.heading=P.heading;
+  if(P.pitch!=null)upd.pitch=P.pitch;
+  if(P.tide!=null)upd.tide=P.tide;
+  if(P.day){const sk=skyAt(2026,P.day,P.time);Object.assign(upd,{day:P.day,time:P.time,sunaz:Math.round(sk.sunAz),sunel:Math.round(sk.sunEl*4)/4});}
+  Object.assign(state,upd);if($('pano-mode').value==='off')$('pano-mode').value='wipe';syncRef();apply();
+ };
+ // line the photo up with Heading, Pitch and Tide (and move if it had no GPS), then keep it (local dev server)
+ $('photo-save').onclick=async()=>{const i=$('photo-ref').value;if(i==='')return;const P=photo.list[+i];
+  const fix={file:P.file,heading:state.heading,pitch:state.pitch,tide:state.tide,pos:[...state.pos]};
+  const r=await fetch('/__photofix',{method:'POST',body:JSON.stringify(fix)}).catch(()=>null);
+  if(r&&r.ok){Object.assign(P,fix);$('photo-save').textContent='Saved ✓';setTimeout(()=>$('photo-save').textContent='Save fix',1500);}else $('photo-save').textContent='Needs the dev server';
+ };
+}
+syncRef();
 let grassAt=null;
 function buildTerrain(cx,cz){
  // snap to the far layer's grid so rebuilding does not make the hills crawl
@@ -312,8 +344,8 @@ function panHeading(now){
  return state.heading;
 }
 let lastT=0;
-renderer.setAnimationLoop(t=>{const dt=Math.min(.1,(t-lastT)/1000);lastT=t;pano?.follow(camera);lights.update(camera,renderer.getDrawingBufferSize(bufSize).y);U.time.value=t/1000;structures.update(dt,U.wind.value,U.windSpeed.value);
+renderer.setAnimationLoop(t=>{const dt=Math.min(.1,(t-lastT)/1000);lastT=t;pano?.follow(camera);lights.update(camera,renderer.getDrawingBufferSize(bufSize).y);if(photo)photo.U.view.value=bufSize.x/Math.max(bufSize.y,1);U.time.value=t/1000;structures.update(dt,U.wind.value,U.windSpeed.value);
  if(state.motion!=='locked'&&!aim)camera.rotation.set(state.pitch*Math.PI/180,-panHeading(t/1000)*Math.PI/180,0,'YXZ');const r=view.getBoundingClientRect();if(r.width&&r.height)draw();});
 // dev: render one frame and save it through tools/serve.py (captures/, git-ignored)
-async function capture(name='walney.png'){pano?.follow(camera);drawNow();const blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/png'));await fetch(`/__capture?name=${encodeURIComponent(name)}`,{method:'POST',body:blob});return name;}
+async function capture(name='walney.png'){pano?.follow(camera);if(photo)photo.U.view.value=renderer.domElement.width/renderer.domElement.height;drawNow();const blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/png'));await fetch(`/__capture?name=${encodeURIComponent(name)}`,{method:'POST',body:blob});return name;}
 window.walney={state,apply,height,meta,capture,grass,look,scene,water,terrain,structures,pano};

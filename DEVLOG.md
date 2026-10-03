@@ -1,5 +1,13 @@
 # Devlog
 
+## 016: Matching photos, not just one pano (v0.7.0, 2026-10-03)
+
+The Sandscale pano did a fine job as ground truth, but it is one image, and the phone's own processing (HDR, white balance, tone curve) is baked into it. Now any of my photos can be a reference:
+- [`terrain/photos.py`](terrain/photos.py) reads each photo's EXIF into `refs/photos.json` (private, git-ignored): GPS position to scene coordinates, compass heading when saved, the 35 mm-equivalent lens as a vertical field of view for the photo's own shape, and the local date and time.
+- A **Photo ref** menu jumps the camera there, faces the photo's heading, sets its lens, and sets the sky clock to that day and time, so the sun matches too. The photo lies over the view, fitted to the screen's height, with the same Blend and Wipe as the pano ([`walney/photo-ref.js`](walney/photo-ref.js)).
+- Phone compass headings are often wrong (one said 117 degrees; Black Combe's bearing put it at 331), and older photos have no GPS. **Save fix** stores a hand alignment (heading, pitch, tide, place) per photo through the dev server into `refs/photos-fix.json`, so it opens aligned next time.
+- First findings: the upper beach at Earnse Bay is rock armour and cobbles, not sand; the low-tide flats are reddish-brown; the concrete grid-block coast path runs along much of the shore.
+
 ## 015: Waves, not stripes (v0.6.0, 2026-10-03)
 
 The shoreline waves were contour lines of the distance to the waterline: six unbroken stripes round every shore, and Wave scale only changed their thickness. After reading the Point Lookout scene's surf model, each shoreline crest is now numbered as it comes in and carries its own life:
