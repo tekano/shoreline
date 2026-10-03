@@ -237,10 +237,10 @@ export function createSea({look}){
    body.addAssign(color('#2a6f80').mul(U.sunLight).mul(max(U.sun.y,.05)).mul(smoothstep(.2,.9,crest)).mul(back).mul(shadeS).mul(.04).mul(smoothstep(.5,3,depth)));   // a faint blue-green through thin crests (sun in real units)
    // Fresnel, roughness-aware: edge-on, a wind-roughened sea is a mirror only in part, since its facets
    // tilt toward you and show the dark water (and far away they are below a pixel), so the sea line
-   // reads darker than the sky; glassy calm water still mirrors fully
-   const fMax=mix(float(1),float(.4),smoothstep(.1,.9,rough)).mul(mix(1,.75,smoothstep(400,6000,range)));
+   // reads darker than the sky. Swell and ripples mean it is never a glassy mirror, even in a calm
+   const fMax=mix(float(.6),float(.3),smoothstep(.1,.9,rough)).mul(mix(1,.75,smoothstep(400,6000,range)));
    const fres=float(.02).add(pow(float(1).sub(ndv),5).mul(fMax.sub(.02)));
-   const col=mix(body,skyRefl(reflect(eye.negate(),n)).mul(.85),fres).toVar();
+   const col=mix(body,skyRefl(reflect(eye.negate(),n),rough.mul(.7).add(.3)).mul(.85),fres).toVar();
    // sun glitter: a statistical path that widens with roughness...
    const hS=normalize(U.sun.add(eye)),nh=max(dot(n,hS),.001),nh2=nh.mul(nh);
    const sig2=float(.0008).add(rough.mul(.006));   // a narrower glitter path

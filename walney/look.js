@@ -176,7 +176,9 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
   const ci=vec2(dot(pc,wdir).mul(.00003),dot(pc,across).mul(.00022)).add(vec2(U.time.mul(.0004),0));
   return pow(smoothstep(.45,.85,F(ci,.3)),2).mul(smoothstep(.04,.25,d.y)).mul(float(.2).sub(U.clouds.mul(.12)));   // faint wisps, as in the pano
  };
- const sky=Fn(([dir])=>{
+ // blur: how rough the mirror is (0 sharp, 1 rough sea). A rough surface tilts each bit of the
+ // reflection a different way, so clouds come back as soft, low-contrast smears, not sharp shapes.
+ const skyCore=(dir,blur)=>{
   const d=normalize(dir).toVar();
   const c=atmosphere(d).toVar();
   c.assign(mix(c,U.sunLight.mul(.08).add(U.skyAmb.mul(.8)),cirrus(d)));
@@ -184,13 +186,16 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
   // lit as the ray-marched clouds are (same sun phase, shadow from the cloud toward the sun,
   // skylight), and fading into the haze with distance the same way, so reflections match the sky
   const s=normalize(U.sun),cs=dot(d,s);
-  const sunT=exp(cloudDensity(at.add(s.xz.mul(260))).mul(-1.8));
-  const cloudC=U.sunLight.mul(sunT).mul(mix(hg(cs,.6),hg(cs,-.25),.35).mul(9).add(.8)).mul(.8*.26).add(U.skyAmb.mul(.77));
+  // seen from below (as in any reflection) a cloud shows its shaded base, not its sunlit top
+  const sunT=exp(cloudDensity(at.add(s.xz.mul(260))).mul(-2.6));
+  const cloudC=U.sunLight.mul(sunT).mul(mix(hg(cs,.6),hg(cs,-.25),.35).mul(9).add(.8)).mul(.8*.26*.45).add(U.skyAmb.mul(.77));
   const far=float(1).sub(exp(t.mul(-1/30000).mul(U.haze.add(.3))));
-  const dens=cloudDensity(at).mul(smoothstep(.025,.07,d.y)).mul(float(1).sub(far));
-  c.assign(mix(c,cloudC,dens.mul(.9)));
+  const th=threshold();
+  const dens=smoothstep(th.sub(blur.mul(.15)),th.add(.05).add(blur.mul(.25)),coverage(at)).mul(smoothstep(.025,.07,d.y)).mul(float(1).sub(far));
+  c.assign(mix(c,cloudC,dens.mul(.9).mul(float(1).sub(blur.mul(.4)))));
   return c;
- });
+ };
+ const sky=Fn(([dir])=>skyCore(dir,float(0)));
  const skyFull=Fn(([dir])=>{
   const d=normalize(dir).toVar();
   const c=atmosphere(d).toVar();
@@ -220,7 +225,7 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
  });
  // what a rough water or wet surface mirrors: facets tilt the view up off the pale horizon band,
  // so distant water reads darker and bluer than the sky just above it
- const skyRefl=Fn(([r])=>sky(vec3(r.x,max(r.y,0).mul(.75).add(.09),r.z)));
+ const skyRefl=Fn(([r,blur])=>skyCore(vec3(r.x,max(r.y,0).mul(.75).add(.09),r.z),blur));
  const skyMaterial=new THREE.MeshBasicNodeMaterial({side:THREE.BackSide,depthWrite:false,fog:false});
  skyMaterial.colorNode=skyFull(positionWorld.sub(cameraPosition));
 
@@ -405,7 +410,7 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
  const eyeG=normalize(cameraPosition.sub(positionWorld));
  const fresG=float(.02).add(pow(float(1).sub(max(dot(normalWorld,eyeG),0)),5).mul(.98));
  const gloss=max(max(wetFlat.mul(.35),pool),mirror.mul(.85));
- ground.emissiveNode=skyRefl(reflect(eyeG.negate(),normalWorld)).mul(fresG).mul(gloss).mul(U.tint).mul(shade.mul(.5).add(.5));
+ ground.emissiveNode=skyRefl(reflect(eyeG.negate(),normalWorld),float(.15)).mul(fresG).mul(gloss).mul(U.tint).mul(shade.mul(.5).add(.5));
 
  // ---------- sea ----------
  // The water plane sits SWASH metres above the tide so the swash can run up
@@ -465,7 +470,7 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
   body.mulAssign(U.sunLight.mul(max(U.sun.y,0)).mul(shadeS).mul(.32).add(U.skyAmb.mul(.9)));
   const ndv=max(dot(n,eye),0);
   const fres=float(.02).add(pow(float(1).sub(ndv),5).mul(.98));
-  const refl=skyRefl(reflect(eye.negate(),n)).mul(.85);
+  const refl=skyRefl(reflect(eye.negate(),n),float(.5)).mul(.85);
   const col=mix(body,refl,fres).toVar();
   // sun glitter: countless tiny facets, some tilted to mirror the sun into the eye.
   // The rougher the water (wind, open sea), the wider and softer the glitter path.
