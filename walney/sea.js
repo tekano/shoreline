@@ -29,6 +29,27 @@ export function createSea({look}){
  // vertex stage uses the displacement to move the grid; the fragment stage uses
  // the slope for a smooth per-pixel normal (no triangle facets).
  const LS=40,LS2=27;
+ // Every shoreline crest is numbered as it comes in, and carries its own life: a strength (sets:
+ // some waves big, some small), its own bends along its length, and where along it the wave
+ // breaks. After the Point Lookout surf model: whitewater in 5-60 m pieces, staggered from crest to
+ // crest, in dense and sparse stretches; the broken centre runs ahead so pieces bow into crescents;
+ // and as a crest travels in through the pattern its pieces grow, split and die. Unbroken stretches
+ // stay as lower humps of swell. psi: phase in cycles (crest n passes where psi = n).
+ const hash1=n=>fract(sin(n.mul(12.9898).add(4.1)).mul(43758.5453));
+ const crestOf=(p,psi,seed)=>{
+  const i0=floor(psi),f=psi.sub(i0);
+  const warpOf=n=>F(p.mul(1/140).add(vec2(n.mul(3.7),n.mul(1.9))).add(seed),.8).sub(.5).mul(.3);   // bends 60-200 m long, +-0.15 cycle
+  const psiB=psi.add(mix(warpOf(i0),warpOf(i0.add(1)),smoothstep(.3,.7,f)));                        // blended across the trough: no seam
+  const n=floor(psiB.add(.5));                                                                        // this point's crest
+  const q=p.add(vec2(n.mul(37.1),n.mul(-23.7))).add(seed*101);                                        // each crest its own pattern
+  const piece=F(q.mul(1/26),1.1).mul(.65).add(F(q.mul(1/9),2.7).mul(.35));                            // 9-26 m features
+  const dens=F(q.mul(1/140),.3);                                                                      // dense and sparse stretches
+  const th=float(.5).add(hash1(n.add(seed)).sub(.5).mul(.16)).sub(dens.sub(.5).mul(.35));            // per-crest threshold: staggered
+  const seg=smoothstep(th.sub(.05),th.add(.06),piece);                                                // tapered ends
+  const strength=mix(.5,1.3,hash1(n.mul(1.37).add(seed+5)));
+  const hump=F(q.mul(1/40),2.1).mul(.6).add(piece.mul(.4));                                           // swell crests ~40 m long, flat between
+  return {psi:psiB.add(seg.mul(.15)),seg,height:strength.mul(smoothstep(.4,.7,hump).mul(1.25))};
+ };
  // shoreline layer: runs in along the distance field, peaks up, breaks, dies on the sand
  const shoreAt=(p,depth,dist,open,windAmp)=>{
   const along=F(p.mul(.004),.9).mul(9).add(F(p.mul(.0011),2.2).mul(7));
@@ -36,14 +57,16 @@ export function createSea({look}){
   const exposure=open.mul(.8).add(.2);
   const segMod=F(p.mul(.006),1.7).mul(.9).add(.55);                      // some stretches of beach get bigger sets
   const Hs=U.swell.mul(.55).add(windAmp.mul(.15)).mul(pow(exposureAt(p),2).mul(.92).add(.08)).mul(U.waveScale).mul(smoothstep(.02,.35,depth)).mul(segMod);
-  const Hs2=Hs.mul(.5);
-  const phS=dist.div(U.waveScale.mul(LS)).mul(shoal).mul(6.2832).add(U.time.mul(1.1)).add(along);
-  const phS2=dist.div(U.waveScale.mul(LS2)).mul(shoal).mul(6.2832).add(U.time.mul(1.37)).add(along.mul(.8)).add(2.6);
-  // a flat beach: waves start spilling well out and stay broken all the way in
-  const breaking=smoothstep(max(Hs.mul(4.2),.7),Hs.mul(1.4),depth);
-  const breaking2=smoothstep(max(Hs2.mul(4.2),.5),Hs2.mul(1.4),depth);
+  const Hs2=Hs.mul(.3);   // a weaker second set: fewer lines
+  const ph1=dist.div(U.waveScale.mul(LS)).mul(shoal).mul(6.2832).add(U.time.mul(1.1)).add(along);
+  const ph2=dist.div(U.waveScale.mul(LS2)).mul(shoal).mul(6.2832).add(U.time.mul(1.37)).add(along.mul(.8)).add(2.6);
+  const c1=crestOf(p,ph1.div(6.2832),0),c2=crestOf(p,ph2.div(6.2832),17);
+  const H1=Hs.mul(c1.height),H2=Hs2.mul(c2.height);
+  // a flat beach: waves start spilling well out and stay broken all the way in (bigger ones further out)
+  const breaking=smoothstep(max(H1.mul(4.2),.7),H1.mul(1.4),depth);
+  const breaking2=smoothstep(max(H2.mul(4.2),.5),H2.mul(1.4),depth);
   const wS=float(1).sub(smoothstep(3,10,depth));                  // takes over in the shallows
-  return {shoal,Hs,Hs2,phS,phS2,breaking,breaking2,wS};
+  return {shoal,Hs:H1,Hs2:H2,phS:c1.psi.mul(6.2832),phS2:c2.psi.mul(6.2832),breaking,breaking2,wS,seg:c1.seg,seg2:c2.seg};
  };
  const surfaceAt=p=>{
   const f=seaField(p),open=f.z,dist=f.y;
@@ -170,7 +193,8 @@ export function createSea({look}){
    const roller=u=>smoothstep(.8,.95,u).mul(float(1).sub(smoothstep(.988,1,u))).add(float(1).sub(smoothstep(0,.05,u)));
    const trail=u=>exp(u.mul(-5.5));
    const active=smoothstep(.3,.6,F(p.mul(.018).add(vec2(U.time.mul(.01),0)),1.3)).mul(.5).add(.5);
-   const cov=clamp(breakF.mul(roller(u1).mul(1.25).add(trail(u1).mul(.85))).add(breakF2.mul(roller(u2).add(trail(u2).mul(.7)).mul(.7))).mul(active),0,1);
+   const seg1=far?float(0):sh.seg,seg2=far?float(0):sh.seg2;   // only the breaking pieces foam
+   const cov=clamp(breakF.mul(seg1).mul(roller(u1).mul(1.25).add(trail(u1).mul(.85))).add(breakF2.mul(seg2).mul(roller(u2).add(trail(u2).mul(.7)).mul(.7))).mul(active),0,1);
    const surfCov=cov;
    // how high this point stands in its wave: a crest proxy for whitecaps and crest light
    const crest=far?float(0):clamp(positionWorld.y.sub(U.tide).div(U.swell.mul(.45).add(pow(U.windSpeed.div(8),2).mul(.08)).add(.05)),-1,1);

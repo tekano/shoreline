@@ -1,5 +1,16 @@
 # Devlog
 
+## 015: Waves, not stripes (v0.6.0, 2026-10-03)
+
+The shoreline waves were contour lines of the distance to the waterline: six unbroken stripes round every shore, and Wave scale only changed their thickness. After reading the Point Lookout scene's surf model, each shoreline crest is now numbered as it comes in and carries its own life:
+- **Its own bends:** 60-200 m long, up to 0.15 of a wavelength, so successive crests are no longer parallel copies.
+- **Its own strength:** sets, with some waves big and some small. Bigger waves start breaking further out.
+- **Short crests:** the swell humps are ~40 m long and flat between, so a wave is a row of pieces, not a line round the coast.
+- **Breaking in pieces:** whitewater only where the crest breaks, in 5-60 m pieces, staggered crest to crest, in dense and sparse stretches. The broken centre runs ahead, so pieces bow into crescents, and as a crest travels in through the pattern its pieces grow, split and die.
+- The second, shorter set is weaker, for fewer lines.
+
+The sand, swash, tide and wet-sand layers are unchanged.
+
 ## 014: Night lights (v0.5.0, 2026-10-02)
 
 With the light now in real units, lamps can join it on the same scale: a lamp of I candela at distance d gives the eye I/d² lux, dimmed by the same haze, drawn as a small spot plus a little glare ([`walney/lights.js`](walney/lights.js)). By day they vanish into the sky; at dusk they come up through the blue hour.
