@@ -27,6 +27,11 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  const rot=(p,a)=>vec2(p.x.mul(Math.cos(a)).sub(p.y.mul(Math.sin(a))),p.x.mul(Math.sin(a)).add(p.y.mul(Math.cos(a))));
  const F=(p,a=0)=>noise(rot(p,a).mul(1/8)).r;   // ~1 cycle per unit, four octaves
  const V=(p,a=0)=>noise(rot(p,a).mul(1/48)).g;
+ // untiled versions: the tile read twice, the second at the golden ratio of scale, turned and
+ // shifted, so the two never line up again and the lattice's grid averages out (for textures
+ // seen over wide areas: sand grain, foam)
+ const Fq=(p,a=0)=>F(p,a).add(F(p.mul(1.618).add(37.3),a+2.1)).sub(1).mul(.71).add(.5);
+ const Vq=(p,a=0)=>V(p,a).add(V(p.mul(1.618).add(19.7),a+1.3)).sub(1).mul(.71).add(.5);
 
  // ---------- wind ----------
  // One gust field for everything that moves in the wind: ~80 m wide gusts
@@ -276,7 +281,7 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  const ground=new THREE.MeshPhysicalNodeMaterial({roughness:.95});
  const y=positionWorld.y,up=normalWorld.y,p=positionWorld.xz;
  const range=cameraPosition.sub(positionWorld).length();
- const grain=F(p.mul(.9),.2),patch=F(p.mul(.012),1.3);
+ const grain=Fq(p.mul(.9),.2),patch=F(p.mul(.012),1.3);
  const wetSandC=mix(color('#86705c'),color('#a3896c'),grain);         // warm ochre-tan of the wet beach (West Shore photo)
  const drySandC=mix(color('#c9b493'),color('#d8c6a3'),grain);
  const shingleC=mix(color('#8d877e'),color('#b9b5ad'),V(p.mul(3.1),.7)); // cobbles: grey with pale stones
@@ -457,5 +462,5 @@ export function createLook({noiseTex,far,near,tide,landcover}){
  const hwDistAt=(x,z)=>fieldAt(hw,x,z)*far.res;
  // exposure to the open sea (fixed): the West Shore is exposed, the Duddon sheltered at any tide
  const exposureAt=p=>texture(expTex,p.sub(vec2(far.west,far.north)).div(vec2(far.w*far.res,far.hgt*far.res))).r;
- return {U,atmo,updateSkyTex,aerial,worley,sky,skyRefl,skyMaterial,ground,sea,updateSea,gust,cloudShade,F,V,hwDistAt,SWASH,fogNode,seaField,bedAt,exposureAt};
+ return {U,atmo,updateSkyTex,aerial,worley,Fq,Vq,sky,skyRefl,skyMaterial,ground,sea,updateSea,gust,cloudShade,F,V,hwDistAt,SWASH,fogNode,seaField,bedAt,exposureAt};
 }

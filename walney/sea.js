@@ -20,7 +20,7 @@ const SWELL=[{l:64,a:.34,h:72,s:.55,p:0},{l:48,a:.22,h:58,s:.5,p:1.7},{l:36,a:.1
 const WIND=[{l:17,a:.05,o:0,s:.6,p:.3},{l:11,a:.04,o:48,s:.6,p:2.2},{l:7.4,a:.03,o:-55,s:.55,p:5.1},{l:5.6,a:.022,o:25,s:.5,p:1.1},{l:4.1,a:.016,o:-70,s:.5,p:3.3},{l:3,a:.011,o:80,s:.45,p:.8},{l:2.1,a:.007,o:-35,s:.4,p:4.4},{l:1.5,a:.0045,o:60,s:.35,p:2.9}];
 
 export function createSea({look}){
- const {U,F,V,worley,sky,skyRefl,cloudShade,seaField,bedAt,SWASH,exposureAt}=look;
+ const {U,F,V,Fq,Vq,worley,sky,skyRefl,cloudShade,seaField,bedAt,SWASH,exposureAt}=look;
  const tanh=x=>{const t=exp(x.mul(-2));return float(1).sub(t).div(float(1).add(t));};   // x >= 0 here
  const compass=h=>vec2(Math.sin(h*Math.PI/180),-Math.cos(h*Math.PI/180));   // x east, z south
 
@@ -143,18 +143,18 @@ export function createSea({look}){
  // pattern gives way to its average so it cannot shimmer.
  const laceFoam=(p,cov,fw)=>{
   // metres-scale features (threads ~1 m apart, holes 1-8 m) drifting gently: no fine uniform mottle
-  const q=p.mul(.55).add(vec2(F(p.mul(.09),.4),F(p.mul(.09),1.3)).sub(.5).mul(2.4)).add(normalize(U.wind).mul(U.time.mul(.05)));
-  const sheetN=F(q.mul(.7),.2).mul(.6).add(F(q.mul(1.9),1.6).mul(.4));
+  const q=p.mul(.55).add(vec2(Fq(p.mul(.09),.4),Fq(p.mul(.09),1.3)).sub(.5).mul(2.4)).add(normalize(U.wind).mul(U.time.mul(.05)));
+  const sheetN=Fq(q.mul(.7),.2).mul(.6).add(Fq(q.mul(1.9),1.6).mul(.4));
   const sheet=smoothstep(float(.76).sub(cov.mul(.42)),float(.79).sub(cov.mul(.42)),sheetN);
-  const n2=F(q.mul(2.3),2.1),r=float(1).sub(abs(n2.mul(2).sub(1)));
+  const n2=Fq(q.mul(2.3),2.1),r=float(1).sub(abs(n2.mul(2).sub(1)));
   const w=float(.05).add(cov.mul(.2));
-  const thread=smoothstep(float(1).sub(w),float(1).sub(w.mul(.6)),r.add(V(q.mul(6),.7).mul(.06)));
-  const brk=smoothstep(float(.6).sub(cov.mul(.45)),float(.75).sub(cov.mul(.45)),V(q.mul(1.4),2.4));
+  const thread=smoothstep(float(1).sub(w),float(1).sub(w.mul(.6)),r.add(Vq(q.mul(6),.7).mul(.06)));
+  const brk=smoothstep(float(.6).sub(cov.mul(.45)),float(.75).sub(cov.mul(.45)),Vq(q.mul(1.4),2.4));
   // aerated: cells of clear water open up in the foam (Worley), more as it thins, and 10 m blotches
   // vary how dense it is, so it is never a solid white sheet
-  const blot=smoothstep(.25,.75,F(q.mul(.09),.8));
+  const blot=smoothstep(.25,.75,Fq(q.mul(.09),.8));
   // three cell sizes (~8, 3, 1 m) on a warped grid, weighted to the big ones: irregular holes
-  const qw=q.add(vec2(F(q.mul(.05),.3),F(q.mul(.05),2.2)).sub(.5).mul(14));
+  const qw=q.add(vec2(Fq(q.mul(.05),.3),Fq(q.mul(.05),2.2)).sub(.5).mul(14));
   const cellD=worley(qw.mul(.2)).mul(.6).add(worley(qw.mul(.55).add(3.1)).mul(.3)).add(worley(qw.mul(1.6).add(7.7)).mul(.1));
   // even fresh foam at the breaking edge is torn (small holes); older, thinner foam opens right up
   const holes=smoothstep(mix(.5,.3,cov.mul(blot.mul(.5).add(.5))),mix(.6,.4,cov),cellD);
