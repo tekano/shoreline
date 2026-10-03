@@ -20,7 +20,7 @@ const SWELL=[{l:64,a:.34,h:72,s:.55,p:0},{l:48,a:.22,h:58,s:.5,p:1.7},{l:36,a:.1
 const WIND=[{l:17,a:.05,o:0,s:.6,p:.3},{l:11,a:.04,o:48,s:.6,p:2.2},{l:7.4,a:.03,o:-55,s:.55,p:5.1},{l:5.6,a:.022,o:25,s:.5,p:1.1},{l:4.1,a:.016,o:-70,s:.5,p:3.3},{l:3,a:.011,o:80,s:.45,p:.8},{l:2.1,a:.007,o:-35,s:.4,p:4.4},{l:1.5,a:.0045,o:60,s:.35,p:2.9}];
 
 export function createSea({look}){
- const {U,F,V,sky,skyRefl,cloudShade,seaField,bedAt,SWASH,exposureAt}=look;
+ const {U,F,V,worley,sky,skyRefl,cloudShade,seaField,bedAt,SWASH,exposureAt}=look;
  const tanh=x=>{const t=exp(x.mul(-2));return float(1).sub(t).div(float(1).add(t));};   // x >= 0 here
  const compass=h=>vec2(Math.sin(h*Math.PI/180),-Math.cos(h*Math.PI/180));   // x east, z south
 
@@ -123,7 +123,7 @@ export function createSea({look}){
  // when its slope mirrors the sun into the eye, then re-rolls a moment later
  const glints=Fn(([p,need,fw,sigma,rate])=>{
   const acc=float(0).toVar();
-  for(const [l,size] of [[0,.05],[1,.11]]){
+  for(const [l,size] of [[0,.22],[1,.5]]){   // fewer, bigger facets
    const cs=max(size,fw.mul(1.2));
    const q=p.div(cs).add(l*17.3),id=floor(q),f=fract(q),h0=hash32(id);
    const tt=U.time.mul(rate).add(h0.z.mul(7)),hr=hash32(id.add(floor(tt).mul(1.618)));
@@ -149,16 +149,23 @@ export function createSea({look}){
   const w=float(.05).add(cov.mul(.2));
   const thread=smoothstep(float(1).sub(w),float(1).sub(w.mul(.6)),r.add(V(q.mul(6),.7).mul(.06)));
   const brk=smoothstep(float(.6).sub(cov.mul(.45)),float(.75).sub(cov.mul(.45)),V(q.mul(1.4),2.4));
-  const near=max(sheet,thread.mul(mix(.25,1,brk))).mul(smoothstep(.03,.14,cov));
-  return mix(near,smoothstep(.04,.6,cov).mul(.95),smoothstep(.04,.18,fw));   // far away: the foam's average, kept bright
+  // aerated: cells of clear water open up in the foam (Worley), more as it thins, and 10 m blotches
+  // vary how dense it is, so it is never a solid white sheet
+  const blot=smoothstep(.25,.75,F(q.mul(.09),.8));
+  const cellD=worley(q.mul(.55)).mul(.65).add(worley(q.mul(1.6)).mul(.35));
+  const holes=smoothstep(mix(.42,.2,cov.mul(blot.mul(.6).add(.4))),mix(.52,.3,cov),cellD);
+  const near=max(sheet,thread.mul(mix(.25,1,brk))).mul(smoothstep(.03,.14,cov)).mul(mix(.35,1,holes)).mul(blot.mul(.45).add(.55));
+  return mix(near,smoothstep(.04,.6,cov).mul(.7),smoothstep(.04,.18,fw));   // far away: the foam's average (holes included)
  };
  const make=({far})=>{
   const m=new THREE.MeshBasicNodeMaterial({transparent:true,depthWrite:false});
   if(!far)m.positionNode=posW;
   const state=()=>{
    const p=positionWorld.xz,f=seaField(p),bed=bedAt(p);
-   const runPhase=U.time.mul(.115).add(F(p.mul(.004),.9).mul(9).add(F(p.mul(.0011),2.2).mul(7)));   // a slow surf beat (~1 min): the edge seeps, not jumps
-   const run=pow(cos(runPhase).mul(.5).add(.5),3).mul(float(.06).add(U.swell.mul(.1))).mul(f.z.mul(.6).add(.4));
+   // the edge: a slow seep (surf beat, ~27 s) and a small quick lap (~7 s) that runs along the shore
+   const runPhase=U.time.mul(.23).add(F(p.mul(.004),.9).mul(9).add(F(p.mul(.0011),2.2).mul(7)));
+   const lapPhase=U.time.mul(.9).add(F(p.mul(.02),1.7).mul(14)).add(dot(p,vec2(.05,.03)));
+   const run=pow(cos(runPhase).mul(.5).add(.5),3).add(pow(cos(lapPhase).mul(.5).add(.5),2).mul(.3)).mul(float(.06).add(U.swell.mul(.1))).mul(f.z.mul(.6).add(.4));
    // the swash: the water's real edge runs up the beach and drains back
    const surface=far?U.tide:positionWorld.y.sub(float(SWASH).mul(smoothstep(1.5,0,max(U.tide.sub(bed),0)))).add(run);
    const signed=surface.sub(bed);
@@ -226,11 +233,12 @@ export function createSea({look}){
    const D=exp(float(1).sub(nh2).div(nh2).div(sig2).negate()).div(sig2.mul(3.1416).mul(nh2).mul(nh2));
    const Fh=float(.02).add(pow(float(1).sub(max(dot(hS,eye),0)),5).mul(.98));
    const clearSky=pow(float(1).sub(U.overcast),2);   // glitter needs a sun to glitter in
-   col.addAssign(U.sunLight.mul(min(D.mul(Fh).div(max(ndv,.15).mul(4)),60)).mul(shadeS).mul(min(max(U.sun.y,0).mul(4),1)).mul(clearSky).mul(.5));
+   col.addAssign(U.sunLight.mul(min(D.mul(Fh).div(max(ndv,.15).mul(4)),60)).mul(shadeS).mul(min(max(U.sun.y,0).mul(4),1)).mul(clearSky).mul(.2));   // a soft path; the glints carry the sparkle
    // ...and individual glints sparkling in it, as in reality-js
    const need=vec2(hS.x.div(hS.y),hS.z.div(hS.y)).sub(vec2(n.x.div(n.y),n.z.div(n.y))).negate();
-   const gl=glints(p,need,fw,sqrt(sig2.mul(2.5)).add(.04),float(1.1));
-   col.addAssign(U.sunLight.mul(gl.mul(27)).mul(float(1).sub(foam)).mul(shadeS).mul(clearSky).mul(smoothstep(0,.06,U.sun.y)).mul(mix(.35,2.4,smoothstep(6,80,range))));
+   // facets barely tilted: the waves' own slope decides where they flash, so glints ride the wave faces
+   const gl=glints(p,need,fw,sqrt(sig2).mul(1.2).add(.04),float(.45));
+   col.addAssign(U.sunLight.mul(gl.mul(27)).mul(float(1).sub(foam)).mul(shadeS).mul(clearSky).mul(smoothstep(0,.06,U.sun.y)).mul(mix(.5,1.2,smoothstep(6,80,range))));
    const foamLit=vec3(.93).mul(U.sunLight.mul(max(U.sun.y,0)).mul(shadeS).mul(.3).add(U.skyAmb.mul(1.3)));
    col.assign(mix(col,foamLit,foam));
    // debug view: red = foam coverage, green = breaking, blue = position in the wave cycle
