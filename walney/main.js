@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import {pass,uniform,vec3,vec4,float,dot,mix,pow,max,renderOutput} from 'three/tsl';
+import {pass,uniform,vec3,vec4,float,dot,mix,pow,max,smoothstep,renderOutput} from 'three/tsl';
 import {createLook} from './look.js';
 import {createLights} from './lights.js';
 import {E0,visibilityKm,mieFor} from './atmo.js';
@@ -44,7 +44,7 @@ const saved=read();
 // (their scales changed: haze is now aerosol, exposure is stops around a metered EV)
 function lastFor(last={}){if(last.v&&last.v>='0.4')return last;const {haze,ev,exposure,contrast,saturation,blacks,skyGain,...keep}=last;return keep;}
 const presets={...meta.cameras,...saved};
-export const VERSION='0.6.16';   // bump with each release; shown in the panel title
+export const VERSION='0.6.17';   // bump with each release; shown in the panel title
 document.title=`Walney ${VERSION}`;$('version').textContent=`v${VERSION}`;
 const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1,saturation:1,blacks:0,stars:2.5,...DEFAULT,...lastFor(saved.__last)};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
@@ -67,7 +67,10 @@ const graded=(()=>{
  const c=max(scenePass.rgb.mul(G.wb).sub(G.blacks),0);   // daylight white balance, as a camera's preset
  const lum=dot(c,vec3(.2126,.7152,.0722));
  const sat=mix(vec3(lum),c,G.saturation);
- return vec4(pow(max(sat,1e-5).div(.18),vec3(G.contrast)).mul(.18),1);
+ // the camera's own response has a firmer toe: a gentle curve around mid-grey that deepens the
+ // shadows and leaves the highlights to the tone mapper (Contrast multiplies it)
+ const k=G.contrast.mul(mix(1.15,1,smoothstep(.18,.6,dot(sat,vec3(.2126,.7152,.0722)))));
+ return vec4(pow(max(sat,1e-5).div(.18),vec3(k)).mul(.18),1);
 })();
 // the pano is composited after tone mapping, straight from the photo
 renderer.setClearAlpha(0);
@@ -194,10 +197,10 @@ function apply(){
  const meter=Math.log2(Eh*100/250);
  const adapted=meter>=10?15+.65*(meter-15):15+.65*(10-15)+(meter-10)*.85;
  const ev100=Math.min(16,Math.max(-6,adapted))-state.ev;
- // exposure: scene values are cd/m2 x H. Set like the phone that took the pano: a grey card
- // (18%) lands a stop above display mid-grey, so the sky reads as bright as in the photo.
- // H = 2 x 0.22 pi / (0.18 E), with E = 2.5 x 2^EV100 lux
- const H=2*.22*Math.PI/(.18*2.5*2**ev100);
+ // exposure: scene values are cd/m2 x H. A grey card (18%) lands about half a stop above display
+ // mid-grey: a little brighter than a meter, darker than the phone that took the pano.
+ // H = 1.4 x 0.22 pi / (0.18 E), with E = 2.5 x 2^EV100 lux
+ const H=1.4*.22*Math.PI/(.18*2.5*2**ev100);
  meteredEV=ev100;
  const mie=mieFor(state.haze),boost=1+ov*1.5;   // a little more haze under a deck
  U.expo.value=H;U.sunE.value=E0*H;U.sunT.value.set(...Ts);U.msG.value.set(...atmo.msAt(mu));U.sunDirect.value=direct;
