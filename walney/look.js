@@ -324,7 +324,7 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover,armourTex
  const pastureC=mix(color('#62784c'),color('#76885d'),patch);
  const fellC=mix(color('#5c6a45'),color('#6b704e'),patch);
  const heatherC=mix(color('#5d5249'),color('#6b5d55'),patch);                          // bracken and heather on the tops
- const rockC=mix(color('#8e8a82'),color('#aaa69e'),grain);
+ const rockC=mix(color('#7d776d'),color('#948d80'),grain);   // fell scree: weathered grey-brown, not pale
  const aboveTide=y.sub(U.tide);
  const wet=float(1).sub(smoothstep(.25,1.8,aboveTide));               // flats still wet from the last tide
  // the intertidal flats stay damp and dark between tides (red-brown in the photos); sand dries pale
@@ -346,7 +346,7 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover,armourTex
  const duneC=mix(mix(marramC,slackC,hollow.mul(.6)),drySandC.mul(.82),smoothstep(.82,.7,up).mul(smoothstep(.68,.74,F(p.mul(.05),2.6))).mul(.8));
  // Real reflectance, measured against the pano under the physical light: plants return only
  // ~10% of visible light (the palette above is their colour; this is how much of it).
- const REFLECT={3:vec3(.4,.38,.27),13:vec3(.4,.38,.27),4:vec3(.28,.33,.35),6:vec3(.33),7:vec3(.33),8:vec3(.27,.35,.55),9:vec3(.33),11:vec3(.33),bare:vec3(.7)};
+ const REFLECT={3:vec3(.4,.38,.27),13:vec3(.4,.38,.27),4:vec3(.28,.33,.35),6:vec3(.33),7:vec3(.33),8:vec3(.27,.35,.55),12:vec3(.38,.36,.34),9:vec3(.33),11:vec3(.33),bare:vec3(.7)};
  const PALETTE={1:sandLike,2:shingleC,3:duneC,4:marshC,5:color('#6d6455'),6:mix(color('#3f4f26'),color('#56602f'),grain),7:heatherC,8:pastureC,
   9:mix(color('#2f4326'),color('#3f5530'),patch),10:color('#4c6774'),11:mix(color('#8a8781'),color('#6e7a52'),smoothstep(.45,.6,F(p.mul(.05),.7)).mul(.6)),
   12:rockC,13:slackC,14:flatC,20:color('#58595b'),21:mix(color('#cbc5b7'),color('#ddd8cb'),grain),22:color('#b4a586'),24:mix(color('#6e625e'),color('#8a7f78'),patch)};
@@ -453,7 +453,7 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover,armourTex
  // the hand-painted surface map (surface.js) overrides the rules where it says so
  const sid=surfaceTex?texture(surfaceTex,nearUV(p)).r.mul(255):float(0);
  const eqS=k=>float(1).sub(step(.5,abs(sid.sub(k)))).mul(inNear);
- const painted=float(1).sub(eqS(0));
+ const painted=step(.5,sid).mul(inNear);   // only where something is painted, inside the near zone
  const scrubC=mix(color('#2c3322'),color('#4a4a32'),F(p.mul(.3),1.1)).mul(.32);
  const paintC=mix(color('#000'),mix(wetSandC,drySandC,dryF).mul((REFLECT[1]??REFLECT.bare)),eqS(1))
   .add(shingleTone.mul(eqS(2))).add(estuaryC.mul(.85).mul(eqS(3))).add(marshC.mul((REFLECT[4]??REFLECT.bare)).mul(eqS(4)))
