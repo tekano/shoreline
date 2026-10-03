@@ -43,7 +43,7 @@ export function createBushes({spots,height,look,radius=1500,cap=12000,tall=1,lig
  const mat=new THREE.MeshStandardNodeMaterial({roughness:.9,metalness:0});
  // dark olive foliage, lighter on top where it meets the sun, each bush its own shade
  const up=smoothstep(-.2,.9,normalWorld.y);
- const leaf=mix(vec3(.016,.022,.011),vec3(.05,.058,.026),up).mul(hash(instanceIndex).mul(.5).add(.75)).mul(light);
+ const leaf=mix(vec3(.018,.021,.014),vec3(.052,.056,.036),up).mul(hash(instanceIndex).mul(.5).add(.75)).mul(light);
  // foliage: a dense leafy grain and deep gaps, so the crown reads as twigs and leaves, not a smooth skin
  const lq=positionLocal.mul(9).add(hash(instanceIndex).mul(30));
  const leafy=look.F(lq.xz.add(lq.y.mul(.6)),.3).mul(.55).add(look.V(lq.xy.mul(2.3),1.7).mul(.45));

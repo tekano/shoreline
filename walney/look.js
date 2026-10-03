@@ -445,7 +445,11 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover,armourTex
  const pathNear=mix(mix(color('#4b4f3a'),color('#5d5a4c'),V(p.mul(9),.4)),concrete,hole).mul(joint.mul(.35).add(.65));
  const pathC=mix(pathNear,mix(concrete,color('#5a5a48'),.25).mul(.9),smoothstep(.015,.05,fwG)).mul(.9);
  const prom=arm.g.mul(inNear);
- const shore=mix(mix(ground0.mul(ripTone),shingleTone,shingle),pathC,prom);
+ // vegetation seen across a landscape is a pale, greyish olive (the pano): less saturated
+ const veg=lcMask?is(3).add(is(4)).add(is(6)).add(is(7)).add(is(8)).add(is(9)).add(is(13)).min(1):float(1).sub(sandish);
+ const g0=ground0.mul(ripTone),gl0=dot(g0,vec3(.2126,.7152,.0722));
+ const gVeg=mix(g0,vec3(gl0),veg.mul(.3)).mul(mix(1,1.25,is(4)));   // and the saltmarsh a little lighter
+ const shore=mix(mix(gVeg,shingleTone,shingle),pathC,prom);
  ground.colorNode=mix(clay,mix(shore.mul(float(1).sub(max(shingle,prom).mul(.9)).mul(sheen.mul(.35)).add(1)).mul(mix(1,.62,wet.mul(.5).mul(float(1).sub(prom)))),color('#55657a'),pool.mul(.6).mul(float(1).sub(shingle))),U.tint).mul(shade);
  const dryStone=float(1).sub(max(shingle,prom).mul(.85));   // shingle and concrete drain: no sheen of wet sand
  const wetFlat=max(max(wet,is(14).mul(float(1).sub(exposed)).mul(.55)),mirror).mul(dryStone);    // estuary flats stay glossy long after the tide drops

@@ -77,7 +77,9 @@ export function createGrass({look,height,zone}){
   base.assign(mix(base,color('#a9a898'),vG.mul(vTone.z).mul(smoothstep(.2,.9,vT)).mul(.3)));
   // real reflectance, measured against the pano: marram, field grass, saltmarsh
   const reflect=mix(mix(vec3(.37,.37,.32),vec3(.27,.35,.55),step(.5,kind)),vec3(.28,.33,.35),step(1.5,kind));   // field grass greener than marram (the November photos)
-  return base.mul(reflect).mul(mix(.68,1,smoothstep(0,.5,vT))).mul(look.cloudShade(vP));      // darker down in the clump, and under cloud
+  const lit=base.mul(reflect),gray=dot(lit,vec3(.2126,.7152,.0722));
+  const muted=mix(lit,vec3(gray),mix(.2,.35,step(1.5,kind))).mul(mix(1,1.2,step(1.5,kind)));   // pale, greyish greens, as in the pano
+  return muted.mul(mix(.68,1,smoothstep(0,.5,vT))).mul(look.cloudShade(vP));      // darker down in the clump, and under cloud
  })();
  material.colorNode=albedo;
  // sun shining through backlit leaves
