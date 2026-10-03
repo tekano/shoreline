@@ -225,14 +225,16 @@ export function createSea({look}){
    const foam=clamp(max(max(surf,edge),bubbles),0,1).toVar();
    // body: silty sand-grey in the shallows, teal, deep blue-grey; lit by sun and sky
    const body=mix(color('#8c8770'),color('#6f7e72'),smoothstep(.15,1.2,depth)).toVar();
-   body.assign(mix(body,color('#3c6470'),smoothstep(1.2,4,depth)));
-   body.assign(mix(body,color('#264b5e'),smoothstep(5,14,depth)));
+   body.assign(mix(body,color('#2a4f58'),smoothstep(1.2,4,depth)));   // 1-4 m: ~5% back, green-grey
+   // deep water absorbs nearly all the light that enters: it sends back only ~2-5% (blue most),
+   // so open water goes dark slate-blue from ~4 m and is fully dark by ~12 m
+   body.assign(mix(body,color('#11303f'),smoothstep(4,12,depth)));
    // under an overcast deck the Irish Sea goes slate: grey-green, little blue left
    body.assign(mix(body,mix(color('#6b6f66'),color('#4b5655'),smoothstep(.5,5,depth)),U.overcast.mul(.75)));
    body.mulAssign(U.sunLight.mul(max(U.sun.y,0)).mul(shadeS).mul(.32).add(U.skyAmb.mul(.6)));
    // light through the thin upper part of a wave: the sea's colour glowing in the crests
    const back=pow(max(dot(eye.negate(),normalize(vec3(U.sun.x,0,U.sun.z))),0),2).mul(.6).add(.4);
-   body.addAssign(color('#2f8c7c').mul(U.sunLight).mul(max(U.sun.y,.05)).mul(smoothstep(.2,.9,crest)).mul(back).mul(shadeS).mul(.35).mul(smoothstep(.5,3,depth)));
+   body.addAssign(color('#2f8c7c').mul(U.sunLight).mul(max(U.sun.y,.05)).mul(smoothstep(.2,.9,crest)).mul(back).mul(shadeS).mul(.12).mul(smoothstep(.5,3,depth)));   // (scaled for the sun in real units)
    // Fresnel, roughness-aware: edge-on, a wind-roughened sea is a mirror only in part, since its facets
    // tilt toward you and show the dark water (and far away they are below a pixel), so the sea line
    // reads darker than the sky; glassy calm water still mirrors fully
