@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 import {pass,uniform,vec3,vec4,float,dot,mix,pow,max,smoothstep,renderOutput} from 'three/tsl';
 import {createLook} from './look.js';
 import {createLights} from './lights.js';
+import {createRocks} from './rocks.js';
 import {E0,visibilityKm,mieFor} from './atmo.js';
 import {createGrass} from './grass.js';
 import {loadLandcover} from './landcover.js';
@@ -45,7 +46,7 @@ const saved=read();
 // (their scales changed: haze is now aerosol, exposure is stops around a metered EV)
 function lastFor(last={}){if(last.v&&last.v>='0.4')return last;const {haze,ev,exposure,contrast,saturation,blacks,skyGain,...keep}=last;return keep;}
 const presets={...meta.cameras,...saved};
-export const VERSION='0.7.1';   // bump with each release; shown in the panel title
+export const VERSION='0.7.2';   // bump with each release; shown in the panel title
 document.title=`Walney ${VERSION}`;$('version').textContent=`v${VERSION}`;
 const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1,saturation:1,blacks:0,stars:2.5,...DEFAULT,...lastFor(saved.__last)};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
@@ -142,6 +143,8 @@ const structures=createStructures({features,height,look,offshore:night.offshore}
 const lampList=[...structures.lamps,
  ...night.street.map(([x,z,k])=>({pos:[x,height(x,z)+8,z],cd:k?120:8,color:k?[1,.55,.18]:[1,.92,.78],flash:0,halo:.004})),   // faint and many: little glare each
  ...night.floods.map(([x,z,h])=>({pos:[x,height(x,z)+h,z],cd:600,color:[1,.9,.75],flash:0,halo:.01}))];
+// rock armour along the sea defences, found in the LiDAR (terrain/armour.py)
+const rocks=createRocks({data:new Float32Array(await (await fetch('./data/armour.bin')).arrayBuffer()),height,look});scene.add(rocks.group);
 const lights=createLights({lamps:lampList,look});scene.add(lights.mesh);const bufSize=new THREE.Vector2();
 // reference pano overlay (local only: the photo is private and not in the repo)
 const pano=await createPanoRef('sandscale');
@@ -173,7 +176,8 @@ if(photo){
   if(P.heading!=null)upd.heading=P.heading;
   if(P.pitch!=null)upd.pitch=P.pitch;
   if(P.tide!=null)upd.tide=P.tide;
-  for(const k of ['clouds','overcast','wind','haze'])if(P[k]!=null)upd[k]=P[k];   // that day's weather
+  const sky0={clouds:.3,overcast:0,wind:7,haze:2.5};
+  for(const k of ['clouds','overcast','wind','haze'])upd[k]=P[k]??sky0[k];   // that day's weather (or a fair default)
   if(P.day){const sk=skyAt(2026,P.day,P.time);Object.assign(upd,{day:P.day,time:P.time,sunaz:Math.round(sk.sunAz),sunel:Math.round(sk.sunEl*4)/4});}
   Object.assign(state,upd);if($('pano-mode').value==='off')$('pano-mode').value='wipe';syncRef();apply();
  };
@@ -345,8 +349,8 @@ function panHeading(now){
  return state.heading;
 }
 let lastT=0;
-renderer.setAnimationLoop(t=>{const dt=Math.min(.1,(t-lastT)/1000);lastT=t;pano?.follow(camera);lights.update(camera,renderer.getDrawingBufferSize(bufSize).y);if(photo)photo.U.view.value=bufSize.x/Math.max(bufSize.y,1);U.time.value=t/1000;structures.update(dt,U.wind.value,U.windSpeed.value);
+renderer.setAnimationLoop(t=>{const dt=Math.min(.1,(t-lastT)/1000);lastT=t;pano?.follow(camera);lights.update(camera,renderer.getDrawingBufferSize(bufSize).y);rocks.update(camera);if(photo)photo.U.view.value=bufSize.x/Math.max(bufSize.y,1);U.time.value=t/1000;structures.update(dt,U.wind.value,U.windSpeed.value);
  if(state.motion!=='locked'&&!aim)camera.rotation.set(state.pitch*Math.PI/180,-panHeading(t/1000)*Math.PI/180,0,'YXZ');const r=view.getBoundingClientRect();if(r.width&&r.height)draw();});
 // dev: render one frame and save it through tools/serve.py (captures/, git-ignored)
-async function capture(name='walney.png'){pano?.follow(camera);if(photo)photo.U.view.value=renderer.domElement.width/renderer.domElement.height;drawNow();const blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/png'));await fetch(`/__capture?name=${encodeURIComponent(name)}`,{method:'POST',body:blob});return name;}
+async function capture(name='walney.png'){pano?.follow(camera);rocks.update(camera);if(photo)photo.U.view.value=renderer.domElement.width/renderer.domElement.height;drawNow();const blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/png'));await fetch(`/__capture?name=${encodeURIComponent(name)}`,{method:'POST',body:blob});return name;}
 window.walney={state,apply,height,meta,capture,grass,look,scene,water,terrain,structures,pano};
