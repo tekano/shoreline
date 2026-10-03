@@ -17,6 +17,16 @@ class NoCache(http.server.SimpleHTTPRequestHandler):
         url = urlparse(self.path)
         if url.path == '/__photofix':
             return self.photofix()
+        if url.path == '/__surface':
+            # dev only: the hand-painted surface map (walney/surface.js), saved with the site's data
+            data = self.rfile.read(int(self.headers['Content-Length']))
+            if data[1:4] != b'PNG':
+                return self.send_error(400)
+            with open(os.path.join(root, 'walney', 'data', 'surface.png'), 'wb') as f:
+                f.write(data)
+            self.send_response(204)
+            self.end_headers()
+            return
         if url.path != '/__capture':
             return self.send_error(404)
         name = os.path.basename(parse_qs(url.query).get('name', ['capture.png'])[0])

@@ -4,6 +4,7 @@ import {createLook} from './look.js';
 import {createLights} from './lights.js';
 import {createRocks} from './rocks.js';
 import {createBushes} from './bushes.js';
+import {createSurface,SURFACES} from './surface.js';
 import {E0,visibilityKm,mieFor} from './atmo.js';
 import {createGrass} from './grass.js';
 import {loadLandcover} from './landcover.js';
@@ -52,7 +53,7 @@ const saved=read();
 // (their scales changed: haze is now aerosol, exposure is stops around a metered EV)
 function lastFor(last={}){if(last.v&&last.v>='0.4')return last;const {haze,ev,exposure,contrast,saturation,blacks,skyGain,...keep}=last;return keep;}
 const presets={...meta.cameras,...saved};
-export const VERSION='0.8.4';   // bump with each release; shown in the panel title
+export const VERSION='0.8.5';   // bump with each release; shown in the panel title
 document.title=`Walney ${VERSION}`;$('version').textContent=`v${VERSION}`;
 const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1,saturation:1,blacks:0,stars:2.5,...DEFAULT,...lastFor(saved.__last)};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
@@ -104,7 +105,8 @@ const armourTex=await (async()=>{try{const b=await (await fetch('./data/armour_n
  {const cv=new OffscreenCanvas(bmp.width,bmp.height),cx=cv.getContext('2d',{willReadFrequently:true});cx.drawImage(bmp,0,0);const d=cx.getImageData(0,0,bmp.width,bmp.height).data,W=bmp.width,Hh=bmp.height;
   armourAt=(x,z)=>{const i=Math.floor((x-meta.near.west)/meta.near.res),j=Math.floor((z-meta.near.north)/meta.near.res);if(i<0||j<0||i>=W||j>=Hh)return [255,0];const k=(j*W+i)*4;return [d[k],d[k+1]];};}
  const t=new THREE.Texture(bmp);t.flipY=false;t.colorSpace=THREE.NoColorSpace;t.magFilter=t.minFilter=THREE.LinearFilter;t.generateMipmaps=false;t.needsUpdate=true;return t;}catch{return null;}})();
-const look=createLook({noiseTex:makeNoiseTexture(),detailTex:makeDetailNoiseTexture(),far,near,tide:state.tide,landcover,armourTex});
+const surface=await createSurface(meta);   // the hand-painted surface map (surface.js)
+const look=createLook({noiseTex:makeNoiseTexture(),detailTex:makeDetailNoiseTexture(),far,near,tide:state.tide,landcover,armourTex,surfaceTex:surface.tex});
 const atmo=look.atmo;
 // the camera's 'daylight' white balance: neutral under a summer noon sun and sky (fixed, so
 // sunsets stay warm and twilight blue, as in a photo)
@@ -139,6 +141,8 @@ let builtAt=null;
 const GROWS={3:[1,0],8:[.55,1],4:[.8,2],13:[.6,2],6:[.35,1],7:[.4,1]};
 function zone(x,z){
  const h=height(x,z);
+ // the painted surface map comes first: bare ground, saltmarsh, field grass, or bushes instead of grass
+ {const sid=surface.at(x,z);if(sid){if(h<state.tide+.05)return [0,0];return sid===4?[.8,2]:sid===6?[.55,1]:[0,0];}}
  // no grass on the coast path, the armour, or the shingle below it
  if(armourAt){const [ad,pr]=armourAt(x,z);if(pr>100||ad<6||(ad<40&&h<7))return [0,0];}
  if(landcover){const g=GROWS[landcover.classAt(x,z)];if(!g||h<state.tide+.05)return [0,0];return g;}
@@ -163,12 +167,13 @@ const rocks=createRocks({data:new Float32Array(await (await fetch('./data/armour
 const bushes=(()=>{
  if(!landcover)return null;
  const N=meta.near,P={3:.004,8:.002,13:.004,7:.004};   // per 16 m2 cell (scrub and woods are with the trees)
+ const paintedScrub=.15;   // per cell where the surface map says scrub
  let s=12345;const rnd=()=>((s=(Math.imul(s,1664525)+1013904223)>>>0)/4294967296);
  const out=[];
  for(let j=0;j<N.size[1];j++)for(let i=0;i<N.size[0];i++){
-  const x=N.west+(i+rnd())*N.res,z=N.north+(j+rnd())*N.res,p=P[landcover.classAt(x,z)];
+  const x=N.west+(i+rnd())*N.res,z=N.north+(j+rnd())*N.res,sid=surface.at(x,z),p=sid===5?paintedScrub:sid?0:P[landcover.classAt(x,z)];
   if(!p||rnd()>p)continue;
-  const h=height(x,z);if(h<5.2)continue;                                        // above the reach of the tides
+  const h=height(x,z);if(h<(sid===5?3.5:5.2))continue;                          // above the reach of the tides
   if(armourAt){const [ad,pr]=armourAt(x,z);if(ad<12||pr>100)continue;}
   out.push(x,z,1+rnd()*1.4);
  }
@@ -372,23 +377,35 @@ function drawMap(){
  const [cx,cy]=toScreen(...state.pos),h=state.heading*Math.PI/180,half=(camera.fov*camera.aspect/2)*Math.PI/180,L=1500/mv.scale;
  ctx.fillStyle='#e9a23b44';ctx.strokeStyle='#e9a23b';ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.sin(h-half)*L,cy-Math.cos(h-half)*L);ctx.lineTo(cx+Math.sin(h+half)*L,cy-Math.cos(h+half)*L);ctx.closePath();ctx.fill();ctx.stroke();
  ctx.fillStyle='#e9a23b';ctx.beginPath();ctx.arc(cx,cy,4,0,Math.PI*2);ctx.fill();
+ if(surfOverlay){const [ox,oy]=toScreen(meta.near.west,meta.near.north);ctx.imageSmoothingEnabled=false;ctx.drawImage(surfOverlay,ox,oy,meta.near.size[0]*meta.near.res/mv.scale,meta.near.size[1]*meta.near.res/mv.scale);}
+ if(brush.id>=0&&brush.at){const [bx,by]=toScreen(...brush.at);ctx.strokeStyle='#fff';ctx.beginPath();ctx.arc(bx,by,brush.r/mv.scale,0,Math.PI*2);ctx.stroke();}
  ctx.fillStyle='#fff';ctx.font='11px system-ui';ctx.fillText(`${(mv.scale*100).toFixed(0)} m / 100 px`,8,mapCanvas.height/d-8);
 }
+// painting the surface map: pick a surface, then left-drag on the map (right-drag still pans)
+const brush={id:-1,r:12,at:null};let surfOverlay=surface.any()?surface.overlay():null;
+$('surf-kind').innerHTML='<option value="-1">Off (map moves the camera)</option>'+SURFACES.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+$('surf-kind').onchange=e=>{brush.id=+e.target.value;mapCanvas.style.cursor=brush.id>=0?'cell':'crosshair';surfOverlay=surface.overlay();drawMap();};
+$('surf-size').oninput=e=>{brush.r=+e.target.value;$('surf-size-v').textContent=`${brush.r} m`;};$('surf-size-v').textContent=`${brush.r} m`;
+$('surf-save').onclick=async()=>{const ok=await surface.save();$('surf-save').textContent=ok?'Saved ✓':'Needs the dev server';setTimeout(()=>$('surf-save').textContent='Save surface map',1800);};
 let drag=null;
 mapCanvas.addEventListener('contextmenu',e=>e.preventDefault());
 mapCanvas.addEventListener('pointerdown',e=>{
  mapCanvas.setPointerCapture(e.pointerId);
  const r=mapCanvas.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
  if(e.button===2||e.button===1){drag={pan:true,sx,sy,cx:mv.cx,cz:mv.cz};return;}
+ if(brush.id>=0){const [wx,wz]=toWorld(sx,sy);surface.paint(wx,wz,brush.r,brush.id);brush.at=[wx,wz];drag={paint:true};surface.flush(true);surfOverlay=surface.overlay();drawMap();return;}
  state.pos=toWorld(sx,sy).map(v=>+v.toFixed(1));state.label='Custom';drag={aim:true};apply();
 });
 mapCanvas.addEventListener('pointermove',e=>{
- if(!drag)return;const r=mapCanvas.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
+ const r=mapCanvas.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
+ if(brush.id>=0&&!drag?.pan){brush.at=toWorld(sx,sy);if(drag?.paint){surface.paint(...brush.at,brush.r,brush.id);surface.flush();}drawMap();if(!drag)return;}
+ if(!drag)return;
+ if(drag.paint)return;
  if(drag.pan){mv.cx=drag.cx-(sx-drag.sx)*mv.scale;mv.cz=drag.cz-(sy-drag.sy)*mv.scale;drawMap();return;}
  const [cx,cy]=toScreen(...state.pos);if(Math.hypot(sx-cx,sy-cy)<6)return;
  state.heading=+((Math.atan2(sx-cx,-(sy-cy))*180/Math.PI+360)%360).toFixed(1);apply();
 });
-mapCanvas.addEventListener('pointerup',()=>drag=null);
+mapCanvas.addEventListener('pointerup',()=>{if(drag?.paint){surface.flush(true);surfOverlay=surface.overlay();drawMap();grassAt=null;}drag=null;});
 mapCanvas.addEventListener('wheel',e=>{e.preventDefault();const r=mapCanvas.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;const [wx,wz]=toWorld(sx,sy);const k=Math.exp(e.deltaY*.0015);mv.scale=Math.min(Math.max(mv.scale*k,.5),60);mv.cx=wx-(sx-r.width/2)*mv.scale;mv.cz=wz-(sy-r.height/2)*mv.scale;drawMap();},{passive:false});
 
 // ---------- go ----------

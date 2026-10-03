@@ -8,7 +8,7 @@ import {Fn,uniform,float,vec2,vec3,vec4,color,texture,mix,smoothstep,max,min,abs
 // with cumulus and their moving shadows, light haze, wet sand that mirrors the
 // clouds, a shingle bank, marram dunes, grey-olive saltmarsh, and a sea whose
 // breakers and swash follow the real waterline at whatever the tide is.
-export function createLook({noiseTex,detailTex,far,near,tide,landcover,armourTex}){
+export function createLook({noiseTex,detailTex,far,near,tide,landcover,armourTex,surfaceTex}){
  const U={
   sun:uniform(new THREE.Vector3(0,1,0)),time:uniform(0),tide:uniform(tide),tint:uniform(1),
   wind:uniform(new THREE.Vector2(.87,-.5)),windSpeed:uniform(7),   // m/s; blowing toward the ENE (a south-westerly, onshore here)
@@ -449,9 +449,18 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover,armourTex
  const veg=lcMask?is(3).add(is(4)).add(is(6)).add(is(7)).add(is(8)).add(is(9)).add(is(13)).min(1):float(1).sub(sandish);
  const g0=ground0.mul(ripTone),gl0=dot(g0,vec3(.2126,.7152,.0722));
  const gVeg=mix(g0,vec3(gl0),veg.mul(.3)).mul(mix(1,1.25,is(4)));   // and the saltmarsh a little lighter
- const shore=mix(mix(gVeg,shingleTone,shingle),pathC,prom);
+ const shore0=mix(mix(gVeg,shingleTone,shingle),pathC,prom);
+ // the hand-painted surface map (surface.js) overrides the rules where it says so
+ const sid=surfaceTex?texture(surfaceTex,nearUV(p)).r.mul(255):float(0);
+ const eqS=k=>float(1).sub(step(.5,abs(sid.sub(k)))).mul(inNear);
+ const painted=float(1).sub(eqS(0));
+ const scrubC=mix(color('#2c3322'),color('#4a4a32'),F(p.mul(.3),1.1)).mul(.32);
+ const paintC=mix(color('#000'),mix(wetSandC,drySandC,dryF).mul((REFLECT[1]??REFLECT.bare)),eqS(1))
+  .add(shingleTone.mul(eqS(2))).add(estuaryC.mul(.85).mul(eqS(3))).add(marshC.mul((REFLECT[4]??REFLECT.bare)).mul(eqS(4)))
+  .add(scrubC.mul(eqS(5))).add(pastureC.mul((REFLECT[8]??REFLECT.bare)).mul(eqS(6))).add(rockC.mul(.6).mul(eqS(7)));
+ const shore=mix(shore0,paintC,painted);
  ground.colorNode=mix(clay,mix(shore.mul(float(1).sub(max(shingle,prom).mul(.9)).mul(sheen.mul(.35)).add(1)).mul(mix(1,.62,wet.mul(.5).mul(float(1).sub(prom)))),color('#55657a'),pool.mul(.6).mul(float(1).sub(shingle))),U.tint).mul(shade);
- const dryStone=float(1).sub(max(shingle,prom).mul(.85));   // shingle and concrete drain: no sheen of wet sand
+ const dryStone=float(1).sub(max(max(shingle,prom),painted.mul(float(1).sub(eqS(1)).sub(eqS(3)))).mul(.85));   // shingle and concrete drain: no sheen of wet sand
  const wetFlat=max(max(wet,is(14).mul(float(1).sub(exposed)).mul(.55)),mirror).mul(dryStone);    // estuary flats stay glossy long after the tide drops
  ground.roughnessNode=mix(float(.95),mix(mix(mix(.95,.35,wetFlat),.12,mirror),.04,pool),U.tint);
  // dry ground and plant cover hide most of their glancing reflection in their own shadows;

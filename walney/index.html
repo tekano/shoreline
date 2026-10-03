@@ -65,6 +65,9 @@
    <div class="row"><label for="pano-amount">Ref amount</label><input id="pano-amount" type="range" min="0" max="1" step="0.005" value="0.5"><output id="pano-amount-v"></output></div>
    <div class="row"><label for="pano-yaw">Ref yaw °</label><input id="pano-yaw" type="range" min="-6" max="6" step="0.05" value="0"><output id="pano-yaw-v"></output></div>
    <div class="row"><label for="pano-pitch">Ref pitch °</label><input id="pano-pitch" type="range" min="-3" max="3" step="0.05" value="0"><output id="pano-pitch-v"></output></div>
+   <div class="row"><label for="surf-kind">Paint map</label><select id="surf-kind" style="grid-column:span 2"></select></div>
+   <div class="row"><label for="surf-size">Brush</label><input id="surf-size" type="range" min="4" max="80" step="1" value="12"><output id="surf-size-v"></output></div>
+   <div class="buttons"><button id="surf-save" title="Store the painted surfaces in walney/data/surface.png (local dev server)">Save surface map</button></div>
    <div class="row" id="photo-row" hidden><label for="photo-ref">Photo ref</label><select id="photo-ref" style="grid-column:span 2"></select></div>
    <div class="buttons" id="photo-buttons" hidden><button id="photo-save" title="Store this photo's place, aim, eye height, tide and weather (local dev server)">Save fix</button></div>
    <div class="buttons"><button id="pano-go">Stand at pano spot</button></div>
