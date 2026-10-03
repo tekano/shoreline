@@ -1,14 +1,14 @@
 import * as THREE from 'three/webgpu';
 import {STARS} from './sky-clock.js';
 import {createAtmosphere} from './atmo.js';
-import {Fn,uniform,float,vec2,vec3,vec4,color,texture,mix,smoothstep,max,min,abs,pow,dot,normalize,reflect,clamp,cos,sin,acos,exp,fract,floor,step,length,fog,asin,sign,sqrt,dFdx,dFdy,screenUV,screenCoordinate,uniformArray,output,log,
+import {Fn,uniform,float,vec2,vec3,vec4,color,texture,mix,smoothstep,max,min,abs,pow,dot,normalize,reflect,clamp,cos,sin,acos,exp,fract,floor,step,length,fog,asin,sign,sqrt,dFdx,dFdy,select,screenUV,screenCoordinate,uniformArray,output,log,
  positionWorld,normalWorld,cameraPosition,reflectVector,bumpMap} from 'three/tsl';
 
 // The look of the Walney scene, matched to photos of the place: summer sky
 // with cumulus and their moving shadows, light haze, wet sand that mirrors the
 // clouds, a shingle bank, marram dunes, grey-olive saltmarsh, and a sea whose
 // breakers and swash follow the real waterline at whatever the tide is.
-export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
+export function createLook({noiseTex,detailTex,far,near,tide,landcover,armourTex}){
  const U={
   sun:uniform(new THREE.Vector3(0,1,0)),time:uniform(0),tide:uniform(tide),tint:uniform(1),
   wind:uniform(new THREE.Vector2(.87,-.5)),windSpeed:uniform(7),   // m/s; blowing toward the ENE (a south-westerly, onshore here)
@@ -343,7 +343,7 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
  const duneC=mix(mix(marramC,slackC,hollow.mul(.6)),drySandC.mul(.82),smoothstep(.82,.7,up).mul(smoothstep(.68,.74,F(p.mul(.05),2.6))).mul(.8));
  // Real reflectance, measured against the pano under the physical light: plants return only
  // ~10% of visible light (the palette above is their colour; this is how much of it).
- const REFLECT={3:vec3(.4,.38,.27),13:vec3(.4,.38,.27),4:vec3(.25,.29,.31),6:vec3(.33),7:vec3(.33),8:vec3(.33),9:vec3(.33),11:vec3(.33),bare:vec3(.7)};
+ const REFLECT={3:vec3(.4,.38,.27),13:vec3(.4,.38,.27),4:vec3(.25,.29,.31),6:vec3(.33),7:vec3(.33),8:vec3(.27,.35,.55),9:vec3(.33),11:vec3(.33),bare:vec3(.7)};
  const PALETTE={1:sandLike,2:shingleC,3:duneC,4:marshC,5:color('#6d6455'),6:mix(color('#3f4f26'),color('#56602f'),grain),7:heatherC,8:pastureC,
   9:mix(color('#2f4326'),color('#3f5530'),patch),10:color('#4c6774'),11:mix(color('#8a8781'),color('#6e7a52'),smoothstep(.45,.6,F(p.mul(.05),.7)).mul(.6)),
   12:rockC,13:slackC,14:flatC,20:color('#58595b'),21:mix(color('#cbc5b7'),color('#ddd8cb'),grain),22:color('#b4a586'),24:mix(color('#6e625e'),color('#8a7f78'),patch)};
@@ -404,15 +404,55 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
  const duneMask=lcMask?is(3).add(is(4).mul(.6)).add(is(8).mul(.45)).add(is(13).mul(.5)):float(1).sub(beach).mul(smoothstep(4.5,6,y)).mul(float(1).sub(smoothstep(40,90,y)));
  const sheen=gust(p).mul(duneMask);   // gusts lay the grass over and show its paler side
  const shade=cloudShade(positionWorld);
- ground.colorNode=mix(clay,mix(ground0.mul(ripTone).mul(sheen.mul(.35).add(1)).mul(mix(1,.62,wet.mul(.5))),color('#55657a'),pool.mul(.6)),U.tint).mul(shade);
- const wetFlat=max(max(wet,is(14).mul(float(1).sub(exposed)).mul(.55)),mirror);    // estuary flats stay glossy long after the tide drops
+ // ---------- the shore below and behind the rock armour ----------
+ // From terrain/armour.py: R = distance to the armour band, G = the promenade just behind it.
+ const nearUV=q=>q.sub(vec2(near.west,near.north)).div(vec2(near.w*near.res,near.hgt*near.res));
+ const arm=armourTex?texture(armourTex,nearUV(p)):vec4(1,0,0,0);
+ const armD=arm.r.mul(255),inNear=inLayer(near,p,60);
+ const fwG=length(dFdx(p)).add(length(dFdy(p)));               // ground metres per pixel here
+ // cells: distance to the nearest stone centre and that stone's own random number
+ const MHWs=4.2;   // mean high water, m ODN
+ const cells=Fn(([q])=>{
+  const i=floor(q),f=fract(q),best=float(9).toVar(),id=float(0).toVar();
+  for(let y=-1;y<=1;y++)for(let x=-1;x<=1;x++){
+   const o=vec2(x,y),h=hash22(i.add(o)),d=length(o.add(h.mul(.8).add(.1)).sub(f));
+   id.assign(select(d.lessThan(best),fract(h.x.mul(13.7).add(h.y.mul(7.1))),id));best.assign(min(best,d));
+  }
+  return vec2(best,id);
+ });
+ // shingle: a bank of grey, buff and a few red-brown stones on the sand seaward of the armour
+ // shingle: the storm beach round high water all along this shore, and the bank seaward of the armour
+ const band=smoothstep(MHWs-1.4,MHWs-.6,y).mul(float(1).sub(smoothstep(MHWs+1.6,MHWs+2.6,y))).mul(smoothstep(.3,.55,F(p.mul(.03),2.7).mul(.7).add(F(p.mul(.11),.5).mul(.3))));
+ // below the armour the shingle runs well down the beach, to about mid-tide
+ const low=smoothstep(-.5,.5,y).mul(float(1).sub(smoothstep(90,160,armD))).mul(inNear);
+ const shingle=max(max(float(1).sub(smoothstep(16,38,armD)).mul(inNear),band),low).mul(sandish).mul(float(1).sub(smoothstep(MHWs+2.2,MHWs+3.5,y)));
+ const sc=cells(p.mul(19).add(vec2(F(p.mul(.7),.3),F(p.mul(.7),1.7)).mul(1.5)));   // stones ~5 cm
+ const stoneC=mix(mix(color('#5f6062'),color('#8d8c88'),fract(sc.y.mul(3.1))),mix(color('#6e5a50'),color('#3a3b3c'),step(.6,fract(sc.y.mul(9.7)))),step(.88,sc.y));   // grey, a few rust and dark
+ const shingleNear=mix(stoneC.mul(smoothstep(.62,.3,sc.x).mul(.45).add(.55)),color('#55504a'),smoothstep(.42,.6,sc.x).mul(.8));
+ const shingleFar=color('#5d5e60');   // the photos' shingle: grey
+ const shingleTone=mix(shingleNear,shingleFar,smoothstep(.008,.03,fwG));
+ // the coast path: interlocking concrete blocks with oval holes, grass and grit in the holes,
+ // laid along the shore (across the armour's distance gradient)
+ const gA=vec2(texture(armourTex??fieldTex,nearUV(p.add(vec2(4,0)))).r.sub(arm.r),texture(armourTex??fieldTex,nearUV(p.add(vec2(0,4)))).r.sub(arm.r));
+ const across=normalize(gA.add(vec2(1e-5,0))),along=vec2(across.y.negate(),across.x);
+ const bu=dot(p,along).div(.45),bv=dot(p,across).div(.3),bc=fract(vec2(bu.add(floor(bv).mul(.5)),bv));
+ const hole=float(1).sub(max(smoothstep(.13,.09,length(bc.sub(vec2(.27,.5)).mul(vec2(1,.7)))),smoothstep(.13,.09,length(bc.sub(vec2(.77,.5)).mul(vec2(1,.7))))));
+ const joint=smoothstep(.0,.04,bc.x).mul(smoothstep(1,.96,bc.x)).mul(smoothstep(0,.05,bc.y)).mul(smoothstep(1,.95,bc.y));
+ const concrete=mix(color('#8d8a83'),color('#6f6d68'),F(p.mul(.6),.9)).mul(V(p.mul(4),.2).mul(.25).add(.85));
+ const pathNear=mix(mix(color('#4b4f3a'),color('#5d5a4c'),V(p.mul(9),.4)),concrete,hole).mul(joint.mul(.35).add(.65));
+ const pathC=mix(pathNear,mix(concrete,color('#5a5a48'),.25).mul(.9),smoothstep(.015,.05,fwG)).mul(.9);
+ const prom=arm.g.mul(inNear);
+ const shore=mix(mix(ground0.mul(ripTone),shingleTone,shingle),pathC,prom);
+ ground.colorNode=mix(clay,mix(shore.mul(float(1).sub(max(shingle,prom).mul(.9)).mul(sheen.mul(.35)).add(1)).mul(mix(1,.62,wet.mul(.5).mul(float(1).sub(prom)))),color('#55657a'),pool.mul(.6).mul(float(1).sub(shingle))),U.tint).mul(shade);
+ const dryStone=float(1).sub(max(shingle,prom).mul(.85));   // shingle and concrete drain: no sheen of wet sand
+ const wetFlat=max(max(wet,is(14).mul(float(1).sub(exposed)).mul(.55)),mirror).mul(dryStone);    // estuary flats stay glossy long after the tide drops
  ground.roughnessNode=mix(float(.95),mix(mix(mix(.95,.35,wetFlat),.12,mirror),.04,pool),U.tint);
  // dry ground and plant cover hide most of their glancing reflection in their own shadows;
  // only wet sand, flats and pools keep a full water-like specular
  ground.specularIntensityNode=mix(float(.12),float(1),max(max(wetFlat,mirror),pool));
  const eyeG=normalize(cameraPosition.sub(positionWorld));
  const fresG=float(.02).add(pow(float(1).sub(max(dot(normalWorld,eyeG),0)),5).mul(.98));
- const gloss=max(max(wetFlat.mul(.35),pool),mirror.mul(.85));
+ const gloss=max(max(wetFlat.mul(.35),pool),mirror.mul(.85)).mul(dryStone);
  ground.emissiveNode=skyRefl(reflect(eyeG.negate(),normalWorld),float(.15)).mul(fresG).mul(gloss).mul(U.tint).mul(shade.mul(.5).add(.5));
 
  // ---------- sea ----------

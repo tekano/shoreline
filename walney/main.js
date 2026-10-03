@@ -51,7 +51,7 @@ const saved=read();
 // (their scales changed: haze is now aerosol, exposure is stops around a metered EV)
 function lastFor(last={}){if(last.v&&last.v>='0.4')return last;const {haze,ev,exposure,contrast,saturation,blacks,skyGain,...keep}=last;return keep;}
 const presets={...meta.cameras,...saved};
-export const VERSION='0.7.3';   // bump with each release; shown in the panel title
+export const VERSION='0.8.0';   // bump with each release; shown in the panel title
 document.title=`Walney ${VERSION}`;$('version').textContent=`v${VERSION}`;
 const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1,saturation:1,blacks:0,stars:2.5,...DEFAULT,...lastFor(saved.__last)};
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
@@ -97,7 +97,13 @@ const haze=new THREE.Color('#a9c1db');
 
 // the look (sky, ground, sea) lives in look.js; U.tint switches clay ↔ colour
 const landcover=await loadLandcover(meta);
-const look=createLook({noiseTex:makeNoiseTexture(),detailTex:makeDetailNoiseTexture(),far,near,tide:state.tide,landcover});
+// the armour band's surroundings (terrain/armour.py): distance to it, and the promenade behind it
+let armourAt=null;   // CPU copy: [distance to armour, promenade] at x, z
+const armourTex=await (async()=>{try{const b=await (await fetch('./data/armour_near.png')).blob();const bmp=await createImageBitmap(b,{colorSpaceConversion:'none',premultiplyAlpha:'none',imageOrientation:'none'});
+ {const cv=new OffscreenCanvas(bmp.width,bmp.height),cx=cv.getContext('2d',{willReadFrequently:true});cx.drawImage(bmp,0,0);const d=cx.getImageData(0,0,bmp.width,bmp.height).data,W=bmp.width,Hh=bmp.height;
+  armourAt=(x,z)=>{const i=Math.floor((x-meta.near.west)/meta.near.res),j=Math.floor((z-meta.near.north)/meta.near.res);if(i<0||j<0||i>=W||j>=Hh)return [255,0];const k=(j*W+i)*4;return [d[k],d[k+1]];};}
+ const t=new THREE.Texture(bmp);t.flipY=false;t.colorSpace=THREE.NoColorSpace;t.magFilter=t.minFilter=THREE.LinearFilter;t.generateMipmaps=false;t.needsUpdate=true;return t;}catch{return null;}})();
+const look=createLook({noiseTex:makeNoiseTexture(),detailTex:makeDetailNoiseTexture(),far,near,tide:state.tide,landcover,armourTex});
 const atmo=look.atmo;
 // the camera's 'daylight' white balance: neutral under a summer noon sun and sky (fixed, so
 // sunsets stay warm and twilight blue, as in a photo)
@@ -132,6 +138,8 @@ let builtAt=null;
 const GROWS={3:[1,0],8:[.55,1],4:[.8,2],13:[.6,2],6:[.35,1],7:[.4,1]};
 function zone(x,z){
  const h=height(x,z);
+ // no grass on the coast path, the armour, or the shingle below it
+ if(armourAt){const [ad,pr]=armourAt(x,z);if(pr>100||ad<6||(ad<40&&h<7))return [0,0];}
  if(landcover){const g=GROWS[landcover.classAt(x,z)];if(!g||h<state.tide+.05)return [0,0];return g;}
  if(h<4.6||h>45||look.hwDistAt(x,z)<12)return [0,0];
  const e=1.5,slope=Math.hypot(height(x+e,z)-h,height(x,z+e)-h)/e;
@@ -230,12 +238,14 @@ function apply(){
  const Tdiff=1/(1+.75*.15*tau),direct=(1-cover)+cover*Math.exp(-tau/Math.max(mu,.05));
  const above=Esun.map((e,c)=>e*Math.max(mu,0)+skyE[c]);
  const deckL=above.map((e,c)=>e*Tdiff/Math.PI*[.96,.98,1][c]);
- const Esky=skyE.map((e,c)=>e*(1-cover)+cover*Math.PI*deckL[c]);
+ // cumulus scatter sunlight back down into the shadows: brighter fill on a broken-cloud day
+ const Esky=skyE.map((e,c)=>e*(1-cover)+cover*Math.PI*deckL[c]+Esun[c]*Math.max(mu,0)*direct*.15*state.clouds*(1-cover));
  // exposure: meter the light falling on the land (incident metering, EV100 = log2(E*100/250)),
  // then adapt like an eye or an auto-exposing camera: by day only partly (an overcast
  // day still looks darker than a sunny one), at night much more (the stars come out)
  const lumOf=v=>.2126*v[0]+.7152*v[1]+.0722*v[2];
- const Eh=lumOf(Esun)*Math.max(mu,0)*direct+lumOf(Esky)+.002;
+ // under broken cloud the camera meters what reaches the land: the sun's share falls with cover
+ const Eh=lumOf(Esun)*Math.max(mu,0)*direct*(1-.55*state.clouds)+lumOf(Esky)+.002;
  const meter=Math.log2(Eh*100/250);
  const adapted=meter>=10?15+.65*(meter-15):15+.65*(10-15)+(meter-10)*.85;
  const ev100=Math.min(16,Math.max(-6,adapted))-state.ev;

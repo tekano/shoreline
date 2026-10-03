@@ -4,6 +4,7 @@
 
 Reads  walney/data/near.u16, meta.json, landcover_near.png
 Writes walney/data/armour.bin      float32 x, z, size, yaw, shape per boulder
+       walney/data/armour_near.png  distance to the armour (R) and the promenade behind it (G), 4 m
 
 OpenStreetMap does not map the armour here, but the 4 m LiDAR shows it plainly: a steep,
 rough band at the top of the beach. Boulders are scattered over every cell of that band
@@ -48,6 +49,16 @@ def main():
     size = np.clip(rng.lognormal(np.log(1.5), .35, k), .7, 3.2)
     yaw = rng.random(k) * 2 * np.pi
     shape = rng.integers(0, 8, k).astype(np.float32)
+    # a texture for the ground shader (4 m, the near grid): R = distance to the armour band (m, to 255),
+    # G = the promenade: flat ground just landward of (above) the armour, where the coast path runs
+    dist = ndimage.distance_transform_edt(~band) * res
+    prom = (~band) & (dist <= 10) & (slope < 12) & (z > MHW + 2) & ~np.isin(lc, [cls['building']])
+    prom = ndimage.binary_closing(prom, iterations=2) & (~band)          # a continuous strip, not patches
+    tex = np.zeros((H, W, 3), np.uint8)
+    tex[..., 0] = np.clip(dist, 0, 255).astype(np.uint8)
+    tex[..., 1] = (prom * 255).astype(np.uint8)
+    Image.fromarray(tex).save(os.path.join(WEB, 'armour_near.png'), optimize=True)
+    print(f'promenade {prom.sum() * res * res / 1e4:.1f} ha')
     out = np.stack([x, zz, size, yaw, shape], 1).astype(np.float32)
     out.tofile(os.path.join(WEB, 'armour.bin'))
     print(f'{band.sum()} armour cells ({band.sum() * res * res / 1e4:.1f} ha), {k} boulders, {out.nbytes / 1e6:.2f} MB')
