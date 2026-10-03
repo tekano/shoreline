@@ -38,7 +38,10 @@ def main():
     built = np.isin(lc, [cls['road'], cls['building'], cls['built']])
     # close to the high-water line: within 60 m of ground that crosses MHW
     shore = ndimage.binary_dilation((z > MHW - .6) & (z < MHW + .6), iterations=int(60 / res))
-    band = (slope > 14) & (z > 1.5) & (z < 9.5) & shore & ~built & (rough > .05)
+    # armour is laid to defend something: only within ~250 m of roads or buildings (not the wild dune
+    # and marsh edges at Sandscale and Roanhead, whose steep faces look similar in the LiDAR)
+    defended = ndimage.binary_dilation(built, iterations=int(250 / res))
+    band = (slope > 14) & (z > 1.5) & (z < 9.5) & shore & ~built & (rough > .05) & defended
     band = ndimage.binary_opening(band, iterations=1) | (band & ndimage.binary_dilation(band, iterations=1))
     ys, xs = np.nonzero(band)
     rng = np.random.default_rng(7)

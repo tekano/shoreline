@@ -316,7 +316,7 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover,armourTex
  const grain=grain0.add(Fq(p.mul(3.7),1.1).sub(.462).mul(.7).mul(float(1).sub(smoothstep(12,45,range))))
   .add(Fq(p.mul(12.3),2.3).sub(.462).mul(.8).mul(float(1).sub(smoothstep(3,12,range)))),patch=F(p.mul(.012),1.3);
  const tone=F(p.mul(.033),1.9).sub(.46).mul(.22).add(1);   // ~30 m patches, a little damper or drier
- const wetSandC=mix(color('#7a6553'),color('#ad9374'),grain).mul(tone);   // grain range widened around the same average         // warm ochre-tan of the wet beach (West Shore photo)
+ const wetSandC=mix(color('#726756'),color('#a69a80'),grain).mul(tone);   // damp sand: brown-grey, a hint of red         // warm ochre-tan of the wet beach (West Shore photo)
  const drySandC=mix(color('#bca784'),color('#e2cfac'),grain).mul(tone);
  const shingleC=mix(color('#8d877e'),color('#b9b5ad'),V(p.mul(3.1),.7)); // cobbles: grey with pale stones
  const marramC=mix(color('#948c62'),color('#aba179'),patch.mul(.6).add(grain.mul(.4)));  // olive-straw marram
@@ -334,7 +334,10 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover,armourTex
  const beach=float(1).sub(smoothstep(12,40,hwDist));
  const hollow=smoothstep(.45,.6,F(p.mul(.02),.8));
  // colours sampled from the Sandscale pano: grey-olive marsh, straw-olive rush bands
- const marshC=mix(mix(color('#454c3a'),color('#595f48'),patch),color('#605d41'),smoothstep(.55,.7,F(p.mul(.06),2.2)).mul(.6));
+ // saltmarsh is a patchwork: fresh green sward, straw-dry grasses, darker rush and sea-purslane
+ // clumps, in patches tens of metres across (as in the Sandscale pano), never one dark sheet
+ const mA=F(p.mul(.045),2.2),mB=F(p.mul(.13),.7);
+ const marshC=mix(mix(mix(color('#56603c'),color('#6d7a46'),smoothstep(.35,.65,mA)),color('#8a8458'),smoothstep(.6,.78,mB).mul(.7)),color('#3d4632'),smoothstep(.62,.8,F(p.mul(.08),1.4)).mul(.65));
  const exposed=texture(expTex,p.sub(vec2(far.west,far.north)).div(vec2(far.w*far.res,far.hgt*far.res))).r;
  const estuaryC=mix(color('#5d605a'),color('#8a8676'),smoothstep(2.5,4.5,aboveTide));    // sheltered estuary flats: wet silver-grey
  const sandLike0=mix(wetSandC,drySandC,dryF);
@@ -343,7 +346,7 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover,armourTex
  const duneC=mix(mix(marramC,slackC,hollow.mul(.6)),drySandC.mul(.82),smoothstep(.82,.7,up).mul(smoothstep(.68,.74,F(p.mul(.05),2.6))).mul(.8));
  // Real reflectance, measured against the pano under the physical light: plants return only
  // ~10% of visible light (the palette above is their colour; this is how much of it).
- const REFLECT={3:vec3(.4,.38,.27),13:vec3(.4,.38,.27),4:vec3(.25,.29,.31),6:vec3(.33),7:vec3(.33),8:vec3(.27,.35,.55),9:vec3(.33),11:vec3(.33),bare:vec3(.7)};
+ const REFLECT={3:vec3(.4,.38,.27),13:vec3(.4,.38,.27),4:vec3(.28,.33,.35),6:vec3(.33),7:vec3(.33),8:vec3(.27,.35,.55),9:vec3(.33),11:vec3(.33),bare:vec3(.7)};
  const PALETTE={1:sandLike,2:shingleC,3:duneC,4:marshC,5:color('#6d6455'),6:mix(color('#3f4f26'),color('#56602f'),grain),7:heatherC,8:pastureC,
   9:mix(color('#2f4326'),color('#3f5530'),patch),10:color('#4c6774'),11:mix(color('#8a8781'),color('#6e7a52'),smoothstep(.45,.6,F(p.mul(.05),.7)).mul(.6)),
   12:rockC,13:slackC,14:flatC,20:color('#58595b'),21:mix(color('#cbc5b7'),color('#ddd8cb'),grain),22:color('#b4a586'),24:mix(color('#6e625e'),color('#8a7f78'),patch)};

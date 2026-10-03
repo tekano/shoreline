@@ -76,7 +76,7 @@ export function createGrass({look,height,zone}){
   // rolled marram leaves flash silver-grey when a gust lays them over
   base.assign(mix(base,color('#a9a898'),vG.mul(vTone.z).mul(smoothstep(.2,.9,vT)).mul(.3)));
   // real reflectance, measured against the pano: marram, field grass, saltmarsh
-  const reflect=mix(mix(vec3(.37,.37,.32),vec3(.27,.35,.55),step(.5,kind)),vec3(.25,.29,.31),step(1.5,kind));   // field grass greener than marram (the November photos)
+  const reflect=mix(mix(vec3(.37,.37,.32),vec3(.27,.35,.55),step(.5,kind)),vec3(.28,.33,.35),step(1.5,kind));   // field grass greener than marram (the November photos)
   return base.mul(reflect).mul(mix(.68,1,smoothstep(0,.5,vT))).mul(look.cloudShade(vP));      // darker down in the clump, and under cloud
  })();
  material.colorNode=albedo;
