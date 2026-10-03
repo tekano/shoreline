@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import {STARS} from './sky-clock.js';
 import {createAtmosphere} from './atmo.js';
-import {Fn,uniform,float,vec2,vec3,vec4,color,texture,mix,smoothstep,max,min,abs,pow,dot,normalize,reflect,clamp,cos,sin,acos,exp,fract,floor,step,length,fog,asin,sign,sqrt,screenUV,screenCoordinate,uniformArray,output,log,
+import {Fn,uniform,float,vec2,vec3,vec4,color,texture,mix,smoothstep,max,min,abs,pow,dot,normalize,reflect,clamp,cos,sin,acos,exp,fract,floor,step,length,fog,asin,sign,sqrt,dFdx,dFdy,screenUV,screenCoordinate,uniformArray,output,log,
  positionWorld,normalWorld,cameraPosition,reflectVector,bumpMap} from 'three/tsl';
 
 // The look of the Walney scene, matched to photos of the place: summer sky
@@ -28,11 +28,32 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
  const F=(p,a=0)=>noise(rot(p,a).mul(1/8)).r;   // ~1 cycle per unit, four octaves
  const V=(p,a=0)=>noise(rot(p,a).mul(1/48)).g;
  // for textures seen over wide areas (sand grain, foam): gradient noise, which has no lattice
- // lines (src/noise.js makeDetailNoiseTexture), read twice, the second at the golden ratio of
- // scale, turned and shifted, so the tile never visibly repeats. Same mean and spread as F and V.
- const dn=uv=>texture(detailTex,uv);
- const Fq=(p,a=0)=>dn(rot(p,a).mul(1/8)).r.add(dn(rot(p.mul(1.618).add(37.3),a+2.1).mul(1/8)).r).sub(.924).mul(.71).add(.462);
- const Vq=(p,a=0)=>dn(rot(p,a).mul(1/48)).g.add(dn(rot(p.mul(1.618).add(19.7),a+1.3).mul(1/48)).g).sub(1).mul(.71).add(.5);
+ // lines (src/noise.js makeDetailNoiseTexture), hex-tiled so it never repeats. Same mean and
+ // spread as F and V.
+ // Hex tiling (Mikkelsen 2022, "texture bombing"): the surface is cut into hexagons, each reading
+ // the tile with its own random turn and shift, blended at the seams with a contrast-keeping mix,
+ // so the grain never repeats and stays crisp. Gradients are turned with each read (no seam lines
+ // from the mipmaps). Fragment stage only.
+ const hh2=v=>fract(sin(vec2(dot(v,vec2(127.1,311.7)),dot(v,vec2(269.5,183.3)))).mul(43758.5453));
+ const hexTex=uv=>{
+  const dx=dFdx(uv),dy=dFdy(uv);
+  const g=uv.mul(3.4641016*1.6);                                   // hexes ~0.6 of a tile across
+  const sk=vec2(g.x.sub(g.y.mul(.57735027)),g.y.mul(1.15470054));
+  const b=floor(sk),f=fract(sk),z=float(1).sub(f.x).sub(f.y);
+  const s=step(z,0),s2=s.mul(2).sub(1);
+  const w=vec3(z.negate().mul(s2),s.sub(f.y.mul(s2)),s.sub(f.x.mul(s2)));
+  const read=v=>{
+   const h=hh2(v),a=h.x.mul(6.2832),c=cos(a),sn=sin(a);
+   const R=q=>vec2(q.x.mul(c).sub(q.y.mul(sn)),q.x.mul(sn).add(q.y.mul(c)));
+   return texture(detailTex,R(uv).add(h.mul(17))).grad(R(dx),R(dy)).rg;
+  };
+  const wp=pow(max(w,0),vec3(4)),wn=wp.div(wp.x.add(wp.y).add(wp.z));
+  const m=vec2(.462,.5);                                           // the texture's means: keep its spread
+  return read(b.add(vec2(s,s))).sub(m).mul(wn.x).add(read(b.add(vec2(s,float(1).sub(s)))).sub(m).mul(wn.y))
+   .add(read(b.add(vec2(float(1).sub(s),s))).sub(m).mul(wn.z)).div(sqrt(dot(wn,wn))).add(m);
+ };
+ const Fq=(p,a=0)=>hexTex(rot(p,a).mul(1/8)).x;
+ const Vq=(p,a=0)=>hexTex(rot(p,a).mul(1/48)).y;
 
  // ---------- wind ----------
  // One gust field for everything that moves in the wind: ~80 m wide gusts
@@ -283,9 +304,13 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover}){
  const y=positionWorld.y,up=normalWorld.y,p=positionWorld.xz;
  const range=cameraPosition.sub(positionWorld).length();
  // sand grain, its strength varying over ~100 m so there is no even field to spot a repeat in
- const grain=mix(float(.46),Fq(p.mul(.9),.2),smoothstep(.3,.7,F(p.mul(.01),.6)).mul(.9).add(.35)),patch=F(p.mul(.012),1.3);
- const wetSandC=mix(color('#86705c'),color('#a3896c'),grain);         // warm ochre-tan of the wet beach (West Shore photo)
- const drySandC=mix(color('#c9b493'),color('#d8c6a3'),grain);
+ const grain0=mix(float(.46),Fq(p.mul(.9),.2),smoothstep(.3,.7,F(p.mul(.01),.6)).mul(.9).add(.35));
+ // finer grain up close (~5 cm), and a speckle at your feet (~1.5 cm), each fading before it could shimmer
+ const grain=grain0.add(Fq(p.mul(3.7),1.1).sub(.462).mul(.7).mul(float(1).sub(smoothstep(12,45,range))))
+  .add(Fq(p.mul(12.3),2.3).sub(.462).mul(.8).mul(float(1).sub(smoothstep(3,12,range)))),patch=F(p.mul(.012),1.3);
+ const tone=F(p.mul(.033),1.9).sub(.46).mul(.22).add(1);   // ~30 m patches, a little damper or drier
+ const wetSandC=mix(color('#7a6553'),color('#ad9374'),grain).mul(tone);   // grain range widened around the same average         // warm ochre-tan of the wet beach (West Shore photo)
+ const drySandC=mix(color('#bca784'),color('#e2cfac'),grain).mul(tone);
  const shingleC=mix(color('#8d877e'),color('#b9b5ad'),V(p.mul(3.1),.7)); // cobbles: grey with pale stones
  const marramC=mix(color('#948c62'),color('#aba179'),patch.mul(.6).add(grain.mul(.4)));  // olive-straw marram
  const slackC=mix(color('#7e875c'),color('#90966a'),grain);                            // greener grass in the hollows
