@@ -142,7 +142,8 @@ export function createSea({look}){
  // along noise contours, the oldest foam into scattered lace. Far away the
  // pattern gives way to its average so it cannot shimmer.
  const laceFoam=(p,cov,fw)=>{
-  const q=p.mul(1.3).add(vec2(F(p.mul(.21),.4),F(p.mul(.21),1.3)).sub(.5).mul(2.4)).add(normalize(U.wind).mul(U.time.mul(.25)));
+  // metres-scale features (threads ~1 m apart, holes 1-8 m) drifting gently: no fine uniform mottle
+  const q=p.mul(.55).add(vec2(F(p.mul(.09),.4),F(p.mul(.09),1.3)).sub(.5).mul(2.4)).add(normalize(U.wind).mul(U.time.mul(.05)));
   const sheetN=F(q.mul(.7),.2).mul(.6).add(F(q.mul(1.9),1.6).mul(.4));
   const sheet=smoothstep(float(.76).sub(cov.mul(.42)),float(.79).sub(cov.mul(.42)),sheetN);
   const n2=F(q.mul(2.3),2.1),r=float(1).sub(abs(n2.mul(2).sub(1)));
@@ -152,9 +153,9 @@ export function createSea({look}){
   // aerated: cells of clear water open up in the foam (Worley), more as it thins, and 10 m blotches
   // vary how dense it is, so it is never a solid white sheet
   const blot=smoothstep(.25,.75,F(q.mul(.09),.8));
-  // three cell sizes (~5, 1.8, 0.6 m) on a warped grid: big irregular holes, no visible repeat
+  // three cell sizes (~8, 3, 1 m) on a warped grid, weighted to the big ones: irregular holes
   const qw=q.add(vec2(F(q.mul(.05),.3),F(q.mul(.05),2.2)).sub(.5).mul(14));
-  const cellD=worley(qw.mul(.2)).mul(.5).add(worley(qw.mul(.55).add(3.1)).mul(.3)).add(worley(qw.mul(1.6).add(7.7)).mul(.2));
+  const cellD=worley(qw.mul(.2)).mul(.6).add(worley(qw.mul(.55).add(3.1)).mul(.3)).add(worley(qw.mul(1.6).add(7.7)).mul(.1));
   // even fresh foam at the breaking edge is torn (small holes); older, thinner foam opens right up
   const holes=smoothstep(mix(.5,.3,cov.mul(blot.mul(.5).add(.5))),mix(.6,.4,cov),cellD);
   const near=max(sheet,thread.mul(mix(.25,1,brk))).mul(smoothstep(.03,.14,cov)).mul(mix(.12,1,holes)).mul(blot.mul(.45).add(.55));
