@@ -233,7 +233,11 @@ export function createSea({look}){
    // light through the thin upper part of a wave: the sea's colour glowing in the crests
    const back=pow(max(dot(eye.negate(),normalize(vec3(U.sun.x,0,U.sun.z))),0),2).mul(.6).add(.4);
    body.addAssign(color('#2f8c7c').mul(U.sunLight).mul(max(U.sun.y,.05)).mul(smoothstep(.2,.9,crest)).mul(back).mul(shadeS).mul(.35).mul(smoothstep(.5,3,depth)));
-   const fres=float(.02).add(pow(float(1).sub(ndv),5).mul(.98));
+   // Fresnel, roughness-aware: edge-on, a wind-roughened sea is a mirror only in part, since its facets
+   // tilt toward you and show the dark water (and far away they are below a pixel), so the sea line
+   // reads darker than the sky; glassy calm water still mirrors fully
+   const fMax=mix(float(1),float(.5),smoothstep(.1,.9,rough)).mul(mix(1,.75,smoothstep(400,6000,range)));
+   const fres=float(.02).add(pow(float(1).sub(ndv),5).mul(fMax.sub(.02)));
    const col=mix(body,skyRefl(reflect(eye.negate(),n)).mul(.85),fres).toVar();
    // sun glitter: a statistical path that widens with roughness...
    const hS=normalize(U.sun.add(eye)),nh=max(dot(n,hS),.001),nh2=nh.mul(nh);
