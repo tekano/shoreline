@@ -14,6 +14,27 @@ export function createStructures({features,height,look,offshore=[]}){
  // ---------- buildings: one merged mesh ----------
  const pos=[],col=[],idx=[];
  const v=(x,y,z,c)=>{pos.push(x,y,z);col.push(...c);return pos.length/3-1;};
+ // a triangle whose normal points along hint (so lighting is right whatever order the points come in)
+ const face=([A,B,C],hint,c)=>{
+  const ux=A[0]-B[0],uy=A[1]-B[1],uz=A[2]-B[2],wx=C[0]-B[0],wy=C[1]-B[1],wz=C[2]-B[2];
+  const nx=wy*uz-wz*uy,ny=wz*ux-wx*uz,nz=wx*uy-wy*ux;   // (C-B) x (A-B), as three.js computes it
+  const flip=nx*hint[0]+ny*hint[1]+nz*hint[2]<0;
+  const a=v(...A,c),b=v(...(flip?C:B),c),cc=v(...(flip?B:C),c);idx.push(a,b,cc);
+ };
+ // the smallest rectangle round a footprint, tried along each of its edges: centre, axes, length, width
+ const obb=pts=>{
+  let best=null;
+  for(let i=0;i<pts.length;i++){
+   const [x0,z0]=pts[i],[x1,z1]=pts[(i+1)%pts.length],l=Math.hypot(x1-x0,z1-z0);if(l<.5)continue;
+   const ux=(x1-x0)/l,uz=(z1-z0)/l,vx=-uz,vz=ux;
+   let a0=1e9,a1=-1e9,b0=1e9,b1=-1e9;
+   for(const [x,z] of pts){const a=x*ux+z*uz,b=x*vx+z*vz;a0=Math.min(a0,a);a1=Math.max(a1,a);b0=Math.min(b0,b);b1=Math.max(b1,b);}
+   const ar=(a1-a0)*(b1-b0);
+   if(!best||ar<best.ar){const ca=(a0+a1)/2,cb=(b0+b1)/2,long=a1-a0>=b1-b0;
+    best={ar,cx:ux*ca+vx*cb,cz:uz*ca+vz*cb,ux:long?ux:vx,uz:long?uz:vz,vx:long?vx:-ux,vz:long?vz:-uz,L:Math.max(a1-a0,b1-b0),W:Math.min(a1-a0,b1-b0)};}
+  }
+  return best||{cx:pts[0][0],cz:pts[0][1],ux:1,uz:0,vx:0,vz:1,L:1,W:1,ar:1};
+ };
  for(const b of features.buildings){
   let pts=b.p;if(pts.length<3)continue;
   // wind every footprint the same way, so walls face out and roofs face up
@@ -28,15 +49,38 @@ export function createStructures({features,height,look,offshore=[]}){
   const tint=.85+hr(1)*.25;
   const wc=WALLS[Math.floor(hr(2)*WALLS.length)].map(c=>c*tint),rc=ROOFS[Math.floor(hr(3)*ROOFS.length)].map(c=>c*tint);
   const wl=wc.map(c=>c*.7);                                                            // grime and shade low down
+  for(let i=0;i<3;i++)rc[i]*=.5;                                                       // slate and tile are dark (~10%)
+  // a pitched roof on anything near-rectangular: the mapped height is the ridge, the ridge runs
+  // along the long side; houses ~35 deg, huts ~30, sheds a shallow ~10. Odd shapes stay flat.
+  const box=obb(pts),rect=Math.abs(area/2)/(box.L*box.W);
+  const pitch=b.k==='industry'?.18:b.k==='hut'?.58:.7;
+  const gable=rect>.72&&pts.length<=14&&box.W>2;
+  const roofH=gable?Math.min(box.W/2*pitch,b.h*(b.k==='industry'?.3:.5)):0,eave=top-roofH;
   for(let i=0;i<pts.length;i++){
    const [x0,z0]=pts[i],[x1,z1]=pts[(i+1)%pts.length];
-   const a=v(x0,base,z0,wl),bb=v(x1,base,z1,wl),c=v(x1,top,z1,wc),d=v(x0,top,z0,wc);
+   const a=v(x0,base,z0,wl),bb=v(x1,base,z1,wl),c=v(x1,eave,z1,wc),d=v(x0,eave,z0,wc);
    idx.push(a,c,bb,a,d,c);
   }
-  const contour=pts.map(([x,z])=>new THREE.Vector2(x,z));
-  const tris=THREE.ShapeUtils.triangulateShape(contour,[]);
-  const start=pos.length/3;for(const [x,z] of pts)v(x,top,z,rc);
-  for(const [a,bb,c] of tris)idx.push(start+a,start+c,start+bb);   // (a,c,b): with this winding the roof faces up
+  if(gable){
+   const o=.35,P=(u,w,y)=>[box.cx+box.ux*u+box.vx*w,y,box.cz+box.uz*u+box.vz*w];
+   const hu=box.L/2,hw=box.W/2,ed=eave-o*pitch;
+   // two roof planes (with a small overhang), facing up
+   const ridgeA=P(-hu-o,0,top),ridgeB=P(hu+o,0,top);
+   for(const sgn of [-1,1]){
+    const e0=P(-hu-o,sgn*(hw+o),ed),e1=P(hu+o,sgn*(hw+o),ed);
+    face([e0,e1,ridgeB],[0,1,0],rc);face([e0,ridgeB,ridgeA],[0,1,0],rc);
+   }
+   // gable ends, facing out along the ridge
+   for(const sgn of [-1,1]){
+    const g0=P(sgn*hu,-hw,eave),g1=P(sgn*hu,hw,eave),g2=P(sgn*hu,0,top);
+    face([g0,g1,g2],[box.ux*sgn,0,box.uz*sgn],wc);
+   }
+  }else{
+   const contour=pts.map(([x,z])=>new THREE.Vector2(x,z));
+   const tris=THREE.ShapeUtils.triangulateShape(contour,[]);
+   const start=pos.length/3;for(const [x,z] of pts)v(x,top,z,rc);
+   for(const [a,bb,c] of tris)idx.push(start+a,start+c,start+bb);   // (a,c,b): with this winding the roof faces up
+  }
  }
  const g=new THREE.BufferGeometry();
  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
