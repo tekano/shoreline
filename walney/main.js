@@ -57,7 +57,7 @@ const saved=read();
 // (their scales changed: haze is now aerosol, exposure is stops around a metered EV)
 function lastFor(last={}){if(last.v&&last.v>='0.4')return last;const {haze,ev,exposure,contrast,saturation,blacks,skyGain,...keep}=last;return keep;}
 const presets={...meta.cameras,...saved};
-export const VERSION='0.9.2';   // bump with each release; shown in the panel title
+export const VERSION='0.9.3';   // bump with each release; shown in the panel title
 document.title=`Walney ${VERSION}`;$('version').textContent=`v${VERSION}`;
 const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1,saturation:1,blacks:0,stars:2.5,...DEFAULT,...lastFor(saved.__last)};
 if(PLAY){Object.assign(state,{pos:[1809.4,-4414.2],eye:1.6,heading:334.7,pitch:-1.5,mm:28,day:191,time:9,tide:.75,clouds:.45,overcast:0,wind:7,haze:2.5,ev:0,motion:'locked',label:'Sandscale dunes'});
@@ -276,7 +276,7 @@ function apply(){
  camera.fov=mm2fov(state.mm??fovToMm(state.fov));camera.updateProjectionMatrix();
  sea.update(x,z,state.tide);U.tide.value=state.tide;U.windSpeed.value=state.wind;U.clouds.value=state.clouds;U.swell.value=state.swell;U.tint.value=+state.tint;skyDome.position.copy(camera.position);
  // the waterline field is rebuilt after the tide slider settles
- if(state.tide!==seaTide){clearTimeout(seaTimer);seaTimer=setTimeout(()=>{look.updateSea(state.tide);seaTide=state.tide;},120);}
+ if(!PLAY&&state.tide!==seaTide){clearTimeout(seaTimer);seaTimer=setTimeout(()=>{look.updateSea(state.tide);seaTide=state.tide;},120);}
  U.haze.value=state.haze;renderer.toneMappingExposure=1;   // exposure is applied to the light itself (pre-exposed), see below
  const az=state.sunaz*Math.PI/180,el=state.sunel*Math.PI/180;
  sun.position.set(x+Math.sin(az)*Math.cos(el)*5000,camY+Math.sin(el)*5000,z-Math.cos(az)*Math.cos(el)*5000);sun.target.position.set(x,camY,z);
@@ -284,7 +284,7 @@ function apply(){
  // ---- light, from the atmosphere model (atmo.js): real units, then one exposure ----
  const mu=U.sun.value.y;
  if(state.haze!==skyHaze){atmo.setHaze(state.haze);skyHaze=state.haze;skyMu=null;}
- if(mu!==skyMu){atmo.buildSky(mu);look.updateSkyTex();skyMu=mu;skyE=atmo.skyIrradiance().map(e=>e*E0);}
+ if(!PLAY&&mu!==skyMu){atmo.buildSky(mu);look.updateSkyTex();skyMu=mu;skyE=atmo.skyIrradiance().map(e=>e*E0);}
  const Ts=atmo.sunTransmittance(mu),Esun=Ts.map(t=>t*E0);              // lux on a surface facing the sun
  // overcast: a stratus deck of optical depth up to ~60. Direct sun is lost; what gets through
  // is diffused (two-stream: 1/(1+0.75(1-g)tau)), so a thick deck is 2-3 stops darker than sun
@@ -430,17 +430,43 @@ function panHeading(now){
  return state.heading;
 }
 let lastT=0;
-let playT0=null,playApplied=-1,sound=null;
+let playT0=null,sound=null;
+// playback sky: tables A (from) and B (to) a quarter second apart, the next one built row by row
+const SKY_DT=.25,ROWS=4;
+const sunMuAt=pt=>{const sk=skyAt(2026,state.day,tour(pt).time);return Math.sin(sk.sunEl*Math.PI/180);};
+const skyP={A:null,B:null,N:null,from:0};
+const tab=()=>new Float32Array(atmo.SW*atmo.SH*3);
+function playFrame(t){if(playT0===null)playT0=t;const pt=(t-playT0)/1000,k=tour(pt);
+  // everything every frame: camera, sun, light, clouds, tide. The sky table for the next quarter
+  // second is built a few rows a frame and blended in; the waterline field switches between
+  // levels precomputed at load.
+  const sk=skyAt(2026,state.day,k.time);
+  Object.assign(state,{eye:k.eye,heading:k.heading,pitch:k.pitch,time:k.time,tide:k.tide,clouds:k.clouds,overcast:k.overcast,sunaz:sk.sunAz,sunel:sk.sunEl});
+  playSky(pt);look.useSea(k.tide);apply();
+  sound?.update(pt,state);}
+function playSky(pt){
+ if(skyP.A&&pt>skyP.B.t+SKY_DT*2){skyP.A=null;skyP.N=null;}   // fell behind (a hidden tab, a hitch): start afresh
+ if(!skyP.A){                                             // start: both tables built in full
+  atmo.setHaze(state.haze);skyHaze=state.haze;
+  for(const [key,slot,tt] of [['A',0,pt],['B',1,pt+SKY_DT]]){const d=tab();atmo.buildSky(sunMuAt(tt),d);look.updateSkyTex(d,slot);skyP[key]={t:tt,d,E:atmo.skyIrradiance(d).map(e=>e*E0),slot};}
+ }
+ if(!skyP.N){const tt=skyP.B.t+SKY_DT;skyP.N={t:tt,mu:sunMuAt(tt),d:tab(),row:0};}
+ const N=skyP.N;
+ if(N.row<atmo.SH){const j1=Math.min(atmo.SH,N.row+ROWS);atmo.buildSky(N.mu,N.d,N.row,j1);N.row=j1;}
+ if(pt>=skyP.B.t&&N.row>=atmo.SH){                       // B becomes A; the finished table goes into A's old slot
+  const slot=skyP.A.slot;look.updateSkyTex(N.d,slot);
+  skyP.A=skyP.B;skyP.B={t:N.t,d:N.d,E:atmo.skyIrradiance(N.d).map(e=>e*E0),slot};skyP.N=null;
+ }
+ const f=Math.min(1,Math.max(0,(pt-skyP.A.t)/(skyP.B.t-skyP.A.t)));
+ U.skyMix.value=skyP.A.slot===0?f:1-f;
+ skyE=skyP.A.E.map((e,c)=>e+(skyP.B.E[c]-e)*f);skyMu=null;
+}
+if(PLAY)look.cacheSea(Array.from({length:10},(_,i)=>-2.65+i*6.8/9));   // the tide's range in the tour
 if(PLAY){const go=$('play-sound');go.hidden=false;go.onclick=()=>{if(!sound){sound=createSound(look);}else sound.ctx.resume();go.hidden=true;};}
 renderer.setAnimationLoop(t=>{const dt=Math.min(.1,(t-lastT)/1000);lastT=t;
- if(PLAY){if(playT0===null)playT0=t;const pt=(t-playT0)/1000,k=tour(pt);
-  // camera every frame; the sky, tide and sun four times a second (the sky tables are rebuilt on the CPU)
-  Object.assign(state,{eye:k.eye,heading:k.heading,pitch:k.pitch});
-  const [px,pz]=state.pos;camera.position.y=Math.max(height(px,pz),state.tide)+state.eye;camera.rotation.set(state.pitch*Math.PI/180,-state.heading*Math.PI/180,0,'YXZ');
-  if(pt-playApplied>.25){playApplied=pt;const sk=skyAt(2026,state.day,k.time);Object.assign(state,{time:k.time,tide:k.tide,clouds:k.clouds,overcast:k.overcast,sunaz:sk.sunAz,sunel:sk.sunEl});apply();}
-  sound?.update(pt,state);}
+ if(PLAY)playFrame(t);
 pano?.follow(camera);lights.update(camera,renderer.getDrawingBufferSize(bufSize).y);rocks.update(camera);bushes?.update(camera);trees.update(camera);if(photo)photo.U.view.value=bufSize.x/Math.max(bufSize.y,1);U.time.value=t/1000;structures.update(dt,U.wind.value,U.windSpeed.value);
  if(state.motion!=='locked'&&!aim)camera.rotation.set(state.pitch*Math.PI/180,-panHeading(t/1000)*Math.PI/180,0,'YXZ');const r=view.getBoundingClientRect();if(r.width&&r.height)draw();});
 // dev: render one frame and save it through tools/serve.py (captures/, git-ignored)
 async function capture(name='walney.png'){pano?.follow(camera);rocks.update(camera);bushes?.update(camera);trees.update(camera);if(photo)photo.U.view.value=renderer.domElement.width/renderer.domElement.height;drawNow();const blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/png'));await fetch(`/__capture?name=${encodeURIComponent(name)}`,{method:'POST',body:blob});return name;}
-window.walney={state,apply,height,meta,capture,grass,look,scene,water,terrain,structures,pano};
+window.walney={state,apply,height,meta,capture,grass,look,scene,water,terrain,structures,pano,playFrame:PLAY?playFrame:null};

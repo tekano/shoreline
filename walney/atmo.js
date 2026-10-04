@@ -102,11 +102,12 @@ export function createAtmosphere(){
  // the sky as seen from the camera: azimuth from the sun (0..180 deg, the sky is
  // symmetric about the sun's plane) and elevation (squeezed toward the horizon)
  let sunMu=1;
- function buildSky(sunY){
-  sunMu=sunY;
+ // rows j0..j1 of the sky table into out (the playback builds the next table a few rows a frame)
+ function buildSky(sunY,out=sky,j0=0,j1=SH){
+  if(out===sky&&j0===0)sunMu=sunY;
   const o={sR:[0,0,0],ext:[0,0,0],sM:0},ts=[0,0,0],ps=[0,0,0],N=24;
   const sx=Math.sqrt(Math.max(1-sunY*sunY,0)),r=R0+camH;
-  for(let j=0;j<SH;j++)for(let i=0;i<SW;i++){
+  for(let j=j0;j<j1;j++)for(let i=0;i<SW;i++){
    const x=j/(SH-1)*2-1,el=Math.sign(x)*x*x*PI/2,az=i/(SW-1)*PI;
    const d=[Math.cos(el)*Math.cos(az),Math.sin(el),Math.cos(el)*Math.sin(az)];
    const c=d[0]*sx+d[1]*sunY,pr=phaseR(c),pm=phaseM(c);
@@ -121,17 +122,17 @@ export function createAtmosphere(){
      L[k]+=Tv[k]*S*(1-st)/o.ext[k];Tv[k]*=st;
     }
    }
-   const k=(j*SW+i)*3;sky[k]=L[0];sky[k+1]=L[1];sky[k+2]=L[2];
+   const k=(j*SW+i)*3;out[k]=L[0];out[k+1]=L[1];out[k+2]=L[2];
   }
  }
- const skyAt=(el,az,out=[0,0,0])=>{const x=Math.sign(el)*Math.sqrt(Math.abs(el)/(PI/2));return bilerp(sky,SW,SH,az/PI,(x+1)/2,out);};
+ const skyAt=(el,az,out=[0,0,0],tab=sky)=>{const x=Math.sign(el)*Math.sqrt(Math.abs(el)/(PI/2));return bilerp(tab,SW,SH,az/PI,(x+1)/2,out);};
 
  // light on level ground from the whole sky (per unit top-of-air sun)
- function skyIrradiance(){
+ function skyIrradiance(tab=sky){
   const E=[0,0,0],v=[0,0,0],NE=24,NA=24;
   for(let a=0;a<NE;a++){
    const el=(a+.5)/NE*PI/2,w=Math.sin(el)*Math.cos(el)*(PI/2/NE)*(PI/NA)*2;   // both halves of the dome
-   for(let b=0;b<NA;b++){skyAt(el,(b+.5)/NA*PI,v);for(let c=0;c<3;c++)E[c]+=v[c]*w;}
+   for(let b=0;b<NA;b++){skyAt(el,(b+.5)/NA*PI,v,tab);for(let c=0;c<3;c++)E[c]+=v[c]*w;}
   }
   return E;
  }

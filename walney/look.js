@@ -18,7 +18,7 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover,armourTex
   expo:uniform(2.5e-5),sunE:uniform(3.2),sunT:uniform(new THREE.Vector3(.9,.8,.7)),msG:uniform(new THREE.Vector3()),
   bR:uniform(new THREE.Vector3(5.802e-6,13.558e-6,33.1e-6)),bMs:uniform(1.5e-5),bMe:uniform(1.6e-5),zenTau:uniform(new THREE.Vector3(.05,.11,.27)),
   deckL:uniform(new THREE.Vector3()),deckCover:uniform(0),sunDirect:uniform(1),
-  starGain:uniform(2**2.5),   // the dark-adapted eye sees more stars than a camera at the same exposure
+  starGain:uniform(2**2.5),skyMix:uniform(0),   // the dark-adapted eye sees more stars than a camera at the same exposure
   stars:uniformArray(STARS.map(()=>new THREE.Vector4(0,-1,0,0)),'vec4'),   // scene direction + brightness, set by the sky clock
   toCel:uniform(new THREE.Matrix3()),                                          // scene direction -> celestial frame, set by the sky clock
   sunLight:uniform(new THREE.Vector3(3,3,3)),skyAmb:uniform(new THREE.Vector3(.2,.3,.5))   // scene-unit sun and skylight, set from the sun's height
@@ -78,10 +78,13 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover,armourTex
  const skyData=new Uint16Array(atmo.SW*atmo.SH*4);
  const skyTex=new THREE.DataTexture(skyData,atmo.SW,atmo.SH,THREE.RGBAFormat,THREE.HalfFloatType);
  skyTex.magFilter=skyTex.minFilter=THREE.LinearFilter;skyTex.wrapS=skyTex.wrapT=THREE.ClampToEdgeWrapping;
- const updateSkyTex=()=>{
-  const h=THREE.DataUtils.toHalfFloat;
-  for(let i=0;i<atmo.SW*atmo.SH;i++){for(let c=0;c<3;c++)skyData[i*4+c]=h(atmo.sky[i*3+c]*1e3);skyData[i*4+3]=h(1);}
-  skyTex.needsUpdate=true;
+ // a second table, so the playback can blend smoothly from one sun height to the next (U.skyMix)
+ const skyTex2=new THREE.DataTexture(new Uint16Array(atmo.SW*atmo.SH*4),atmo.SW,atmo.SH,THREE.RGBAFormat,THREE.HalfFloatType);
+ skyTex2.magFilter=skyTex2.minFilter=THREE.LinearFilter;skyTex2.wrapS=skyTex2.wrapT=THREE.ClampToEdgeWrapping;
+ const updateSkyTex=(tab=atmo.sky,slot=0)=>{
+  const h=THREE.DataUtils.toHalfFloat,t=slot?skyTex2:skyTex,d=t.image.data;
+  for(let i=0;i<atmo.SW*atmo.SH;i++){for(let c=0;c<3;c++)d[i*4+c]=h(tab[i*3+c]*1e3);d[i*4+3]=h(1);}
+  t.needsUpdate=true;
  };
  const hg=(c,g)=>float(1-g*g).div(pow(float(1+g*g).sub(c.mul(2*g)),1.5).mul(12.566));
  const clearSky=Fn(([d])=>{
@@ -90,7 +93,7 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover,armourTex
   const az=acos(clamp(dot(normalize(d.xz.add(vec2(1e-6,0))),normalize(s.xz.add(vec2(1e-6,0)))),-1,1)).div(Math.PI);
   const v=sign(el).mul(sqrt(abs(el).div(Math.PI/2))).mul(.5).add(.5);
   const uv=vec2(az.mul(atmo.SW-1).add(.5).div(atmo.SW),v.mul(atmo.SH-1).add(.5).div(atmo.SH));
-  return texture(skyTex,uv).rgb.mul(U.sunE.mul(1e-3));
+  return mix(texture(skyTex,uv).rgb,texture(skyTex2,uv).rgb,U.skyMix).mul(U.sunE.mul(1e-3));
  });
  // the overcast deck, as the CIE overcast sky: three times brighter overhead than at the
  // horizon, L = Lz (1 + 2 sin el) / 3, scaled so it gives the ground the same light. Thicker
@@ -292,6 +295,10 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover,armourTex
   fieldTex.needsUpdate=true;
  };
  updateSea(tide);
+ // the playback precomputes the waterline field at a few tide levels and switches between them
+ const seaCache=[];
+ const cacheSea=levels=>{for(const L of levels){updateSea(L);seaCache.push([L,fieldTex.image.data.slice()]);}};
+ const useSea=level=>{if(!seaCache.length)return;let b=seaCache[0];for(const c of seaCache)if(Math.abs(c[0]-level)<Math.abs(b[0]-level))b=c;if(fieldTex.image.data!==b[1]){fieldTex.image.data=b[1];fieldTex.needsUpdate=true;}};
  // off the map (the offshore wind farms lie 10-40 km out) the field fades, over 5 km, to open sea: 30 m deep,
  // far from any shore, fully exposed (instead of the edge values smeared outward)
  const seaField=p=>mix(vec4(-30,20000,1,20000),texture(fieldTex,p.sub(vec2(far.west,far.north)).div(vec2(far.w*far.res,far.hgt*far.res))),inLayer(far,p,5000));
@@ -557,5 +564,5 @@ export function createLook({noiseTex,detailTex,far,near,tide,landcover,armourTex
  const hwDistAt=(x,z)=>fieldAt(hw,x,z)*far.res;
  // exposure to the open sea (fixed): the West Shore is exposed, the Duddon sheltered at any tide
  const exposureAt=p=>mix(float(1),texture(expTex,p.sub(vec2(far.west,far.north)).div(vec2(far.w*far.res,far.hgt*far.res))).r,inLayer(far,p,5000));
- return {U,atmo,updateSkyTex,aerial,worley,Fq,Vq,sky,skyRefl,skyMaterial,ground,sea,updateSea,gust,cloudShade,F,V,hwDistAt,SWASH,fogNode,seaField,bedAt,exposureAt};
+ return {U,atmo,updateSkyTex,cacheSea,useSea,aerial,worley,Fq,Vq,sky,skyRefl,skyMaterial,ground,sea,updateSea,gust,cloudShade,F,V,hwDistAt,SWASH,fogNode,seaField,bedAt,exposureAt};
 }
