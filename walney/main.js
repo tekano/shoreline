@@ -57,7 +57,7 @@ const saved=read();
 // (their scales changed: haze is now aerosol, exposure is stops around a metered EV)
 function lastFor(last={}){if(last.v&&last.v>='0.4')return last;const {haze,ev,exposure,contrast,saturation,blacks,skyGain,...keep}=last;return keep;}
 const presets={...meta.cameras,...saved};
-export const VERSION='0.9.1';   // bump with each release; shown in the panel title
+export const VERSION='0.9.2';   // bump with each release; shown in the panel title
 document.title=`Walney ${VERSION}`;$('version').textContent=`v${VERSION}`;
 const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1,saturation:1,blacks:0,stars:2.5,...DEFAULT,...lastFor(saved.__last)};
 if(PLAY){Object.assign(state,{pos:[1809.4,-4414.2],eye:1.6,heading:334.7,pitch:-1.5,mm:28,day:191,time:9,tide:.75,clouds:.45,overcast:0,wind:7,haze:2.5,ev:0,motion:'locked',label:'Sandscale dunes'});
@@ -434,10 +434,10 @@ let playT0=null,playApplied=-1,sound=null;
 if(PLAY){const go=$('play-sound');go.hidden=false;go.onclick=()=>{if(!sound){sound=createSound(look);}else sound.ctx.resume();go.hidden=true;};}
 renderer.setAnimationLoop(t=>{const dt=Math.min(.1,(t-lastT)/1000);lastT=t;
  if(PLAY){if(playT0===null)playT0=t;const pt=(t-playT0)/1000,k=tour(pt);
-  // camera every frame; the sky, tide and sun twice a second (the sky tables are rebuilt on the CPU)
+  // camera every frame; the sky, tide and sun four times a second (the sky tables are rebuilt on the CPU)
   Object.assign(state,{eye:k.eye,heading:k.heading,pitch:k.pitch});
   const [px,pz]=state.pos;camera.position.y=Math.max(height(px,pz),state.tide)+state.eye;camera.rotation.set(state.pitch*Math.PI/180,-state.heading*Math.PI/180,0,'YXZ');
-  if(pt-playApplied>.5){playApplied=pt;const sk=skyAt(2026,state.day,k.time);Object.assign(state,{time:k.time,tide:k.tide,clouds:k.clouds,overcast:k.overcast,sunaz:sk.sunAz,sunel:sk.sunEl});apply();}
+  if(pt-playApplied>.25){playApplied=pt;const sk=skyAt(2026,state.day,k.time);Object.assign(state,{time:k.time,tide:k.tide,clouds:k.clouds,overcast:k.overcast,sunaz:sk.sunAz,sunel:sk.sunEl});apply();}
   sound?.update(pt,state);}
 pano?.follow(camera);lights.update(camera,renderer.getDrawingBufferSize(bufSize).y);rocks.update(camera);bushes?.update(camera);trees.update(camera);if(photo)photo.U.view.value=bufSize.x/Math.max(bufSize.y,1);U.time.value=t/1000;structures.update(dt,U.wind.value,U.windSpeed.value);
  if(state.motion!=='locked'&&!aim)camera.rotation.set(state.pitch*Math.PI/180,-panHeading(t/1000)*Math.PI/180,0,'YXZ');const r=view.getBoundingClientRect();if(r.width&&r.height)draw();});
