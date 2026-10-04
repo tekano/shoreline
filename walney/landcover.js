@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+const DATA=new URLSearchParams(location.search).has('play')?'./play/data/':'./data/';
 
 // OpenStreetMap land cover rasterised onto the LiDAR grids (terrain/landcover.py).
 // One class id per cell; ids are listed in meta.landcover.classes.
@@ -16,7 +17,7 @@ async function loadClassMap(url,info){
 
 export async function loadLandcover(meta){
  if(!meta.landcover)return null;
- const [near,far]=await Promise.all([loadClassMap('./data/landcover_near.png',meta.near),loadClassMap('./data/landcover_far.png',meta.far)]);
+ const [near,far]=await Promise.all([loadClassMap(DATA+'landcover_near.png',meta.near),loadClassMap(DATA+'landcover_far.png',meta.far)]);
  const at=(L,x,z)=>{const i=Math.floor((x-L.west)/L.res),j=Math.floor((z-L.north)/L.res);return i<0||j<0||i>=L.w||j>=L.hgt?-1:L.data[j*L.w+i];};
  const classAt=(x,z)=>{const c=at(near,x,z);return c>=0?c:Math.max(at(far,x,z),0);};
  return {near,far,classAt,ids:meta.landcover.classes};

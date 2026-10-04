@@ -5,6 +5,7 @@ import {createLights} from './lights.js';
 import {createRocks} from './rocks.js';
 import {createBushes} from './bushes.js';
 import {createSurface,SURFACES} from './surface.js';
+import {tour,createSound} from './play.js';
 import {E0,visibilityKm,mieFor} from './atmo.js';
 import {createGrass} from './grass.js';
 import {loadLandcover} from './landcover.js';
@@ -28,10 +29,13 @@ const STORE='walney.cameras';
 const read=()=>{try{return JSON.parse(localStorage.getItem(STORE)||'{}');}catch{return {};}};
 const write=v=>{try{localStorage.setItem(STORE,JSON.stringify(v));}catch{}};
 
-const meta=await (await fetch('./data/meta.json')).json();
+// ?play: the playback edition (a looping tour of the pano spot, no panel) loads a small, local
+// slice of the data made by terrain/player.py
+const PLAY=new URLSearchParams(location.search).has('play'),DATA=PLAY?'./play/data/':'./data/';
+const meta=await (await fetch(DATA+'meta.json')).json();
 const [lo,hi]=meta.heightRange;
 async function layer(name,info){
- const raw=new Uint16Array(await (await fetch(`./data/${name}.u16`)).arrayBuffer());
+ const raw=new Uint16Array(await (await fetch(`${DATA}${name}.u16`)).arrayBuffer());
  const h=new Float32Array(raw.length);for(let i=0;i<raw.length;i++)h[i]=lo+raw[i]/65535*(hi-lo);
  return {...info,h,w:info.size[0],hgt:info.size[1]};
 }
@@ -53,9 +57,12 @@ const saved=read();
 // (their scales changed: haze is now aerosol, exposure is stops around a metered EV)
 function lastFor(last={}){if(last.v&&last.v>='0.4')return last;const {haze,ev,exposure,contrast,saturation,blacks,skyGain,...keep}=last;return keep;}
 const presets={...meta.cameras,...saved};
-export const VERSION='0.8.7';   // bump with each release; shown in the panel title
+export const VERSION='0.9.0';   // bump with each release; shown in the panel title
 document.title=`Walney ${VERSION}`;$('version').textContent=`v${VERSION}`;
 const state={motion:'locked',panDeg:24,panSecs:90,clouds:.5,swell:.8,ev:0,wind:7,overcast:0,day:191,time:11.5,waveScale:.55,contrast:1,saturation:1,blacks:0,stars:2.5,...DEFAULT,...lastFor(saved.__last)};
+if(PLAY){Object.assign(state,{pos:[1809.4,-4414.2],eye:1.6,heading:334.7,pitch:-1.5,mm:28,day:191,time:9,tide:.75,clouds:.45,overcast:0,wind:7,haze:2.5,ev:0,motion:'locked',label:'Sandscale dunes'});
+ document.body.classList.add('play');}
+
 const mm2fov=mm=>2*Math.atan(24/(2*mm))*180/Math.PI;   // vertical FOV of a full-frame lens
 
 // ---------- renderer ----------
@@ -101,7 +108,7 @@ const haze=new THREE.Color('#a9c1db');
 const landcover=await loadLandcover(meta);
 // the armour band's surroundings (terrain/armour.py): distance to it, and the promenade behind it
 let armourAt=null;   // CPU copy: [distance to armour, promenade] at x, z
-const armourTex=await (async()=>{try{const b=await (await fetch('./data/armour_near.png')).blob();const bmp=await createImageBitmap(b,{colorSpaceConversion:'none',premultiplyAlpha:'none',imageOrientation:'none'});
+const armourTex=await (async()=>{try{const b=await (await fetch(DATA+'armour_near.png')).blob();const bmp=await createImageBitmap(b,{colorSpaceConversion:'none',premultiplyAlpha:'none',imageOrientation:'none'});
  {const cv=new OffscreenCanvas(bmp.width,bmp.height),cx=cv.getContext('2d',{willReadFrequently:true});cx.drawImage(bmp,0,0);const d=cx.getImageData(0,0,bmp.width,bmp.height).data,W=bmp.width,Hh=bmp.height;
   armourAt=(x,z)=>{const i=Math.floor((x-meta.near.west)/meta.near.res),j=Math.floor((z-meta.near.north)/meta.near.res);if(i<0||j<0||i>=W||j>=Hh)return [255,0];const k=(j*W+i)*4;return [d[k],d[k+1]];};}
  const t=new THREE.Texture(bmp);t.flipY=false;t.colorSpace=THREE.NoColorSpace;t.magFilter=t.minFilter=THREE.LinearFilter;t.generateMipmaps=false;t.needsUpdate=true;return t;}catch{return null;}})();
@@ -152,8 +159,8 @@ function zone(x,z){
 }
 const grass=createGrass({look,height,zone});scene.add(grass.mesh);
 // buildings and wind turbines from OpenStreetMap
-const features=await (await fetch('./data/features.json')).json();
-const night=await (await fetch('./data/lights.json')).json();   // street lamps, floodlit sheds, offshore farms (terrain/nightlights.py)
+const features=await (await fetch(DATA+'features.json')).json();
+const night=await (await fetch(DATA+'lights.json')).json();   // street lamps, floodlit sheds, offshore farms (terrain/nightlights.py)
 const structures=createStructures({features,height,look,offshore:night.offshore});scene.add(structures.group);
 // what each lamp sends toward a distant eye, almost level with it: modern LED street lights are
 // full cut-off (next to nothing that way, ~8 cd with tilt and the lit road), older sodium ones
@@ -162,11 +169,11 @@ const lampList=[...structures.lamps,
  ...night.street.map(([x,z,k])=>({pos:[x,height(x,z)+8,z],cd:k?120:8,color:k?[1,.55,.18]:[1,.92,.78],flash:0,halo:.004})),   // faint and many: little glare each
  ...night.floods.map(([x,z,h])=>({pos:[x,height(x,z)+h,z],cd:600,color:[1,.9,.75],flash:0,halo:.01}))];
 // rock armour along the sea defences, found in the LiDAR (terrain/armour.py)
-const rocks=createRocks({data:new Float32Array(await (await fetch('./data/armour.bin')).arrayBuffer()),height,look});scene.add(rocks.group);
+const rocks=createRocks({data:new Float32Array(await (await fetch(DATA+'armour.bin')).arrayBuffer()),height,look});scene.add(rocks.group);
 // bushes: wind-sculpted hawthorn and scrub (OSM scrub and woodland, and singly over dunes and grass)
 const bushes=(()=>{
  if(!landcover)return null;
- const N=meta.near,P={3:.004,8:.002,13:.004,7:.004};   // per 16 m2 cell (scrub and woods are with the trees)
+ const N=meta.near,P={3:.002,8:.001,13:.003,7:.003};   // per 16 m2 cell (scrub and woods are with the trees)
  const paintedScrub=.15;   // per cell where the surface map says scrub
  let s=12345;const rnd=()=>((s=(Math.imul(s,1664525)+1013904223)>>>0)/4294967296);
  const out=[];
@@ -362,7 +369,7 @@ renderer.domElement.addEventListener('pointerup',()=>aim=null);
 // ---------- top-down map ----------
 const mapCanvas=$('map'),ctx=mapCanvas.getContext('2d');
 // an ImageBitmap decodes in a background tab too (Image.decode waits until the page is visible)
-const mapImg=await createImageBitmap(await (await fetch('./data/map.jpg')).blob());
+const mapImg=await createImageBitmap(await (await fetch(DATA+'map.jpg')).blob());
 const M=meta.map,mapW=M.size[0]*M.res,mapH=M.size[1]*M.res;
 const mv={scale:0,cx:0,cz:0};   // metres per css pixel, view centre
 function fitMap(){const r=mapCanvas.getBoundingClientRect();mapCanvas.width=r.width*devicePixelRatio;mapCanvas.height=r.height*devicePixelRatio;if(!mv.scale){mv.scale=Math.max(mapW/r.width,mapH/r.height);mv.cx=M.west+mapW/2;mv.cz=M.north+mapH/2;}drawMap();}
@@ -423,7 +430,16 @@ function panHeading(now){
  return state.heading;
 }
 let lastT=0;
-renderer.setAnimationLoop(t=>{const dt=Math.min(.1,(t-lastT)/1000);lastT=t;pano?.follow(camera);lights.update(camera,renderer.getDrawingBufferSize(bufSize).y);rocks.update(camera);bushes?.update(camera);trees.update(camera);if(photo)photo.U.view.value=bufSize.x/Math.max(bufSize.y,1);U.time.value=t/1000;structures.update(dt,U.wind.value,U.windSpeed.value);
+let playT0=null,playApplied=-1,sound=null;
+if(PLAY){const go=$('play-sound');go.hidden=false;go.onclick=()=>{if(!sound){sound=createSound(look);}else sound.ctx.resume();go.hidden=true;};}
+renderer.setAnimationLoop(t=>{const dt=Math.min(.1,(t-lastT)/1000);lastT=t;
+ if(PLAY){if(playT0===null)playT0=t;const pt=(t-playT0)/1000,k=tour(pt);
+  // camera every frame; the sky, tide and sun twice a second (the sky tables are rebuilt on the CPU)
+  Object.assign(state,{eye:k.eye,heading:k.heading,pitch:k.pitch});
+  const [px,pz]=state.pos;camera.position.y=Math.max(height(px,pz),state.tide)+state.eye;camera.rotation.set(state.pitch*Math.PI/180,-state.heading*Math.PI/180,0,'YXZ');
+  if(pt-playApplied>.5){playApplied=pt;const sk=skyAt(2026,state.day,k.time);Object.assign(state,{time:k.time,tide:k.tide,sunaz:sk.sunAz,sunel:sk.sunEl});apply();}
+  sound?.update(pt,state);}
+pano?.follow(camera);lights.update(camera,renderer.getDrawingBufferSize(bufSize).y);rocks.update(camera);bushes?.update(camera);trees.update(camera);if(photo)photo.U.view.value=bufSize.x/Math.max(bufSize.y,1);U.time.value=t/1000;structures.update(dt,U.wind.value,U.windSpeed.value);
  if(state.motion!=='locked'&&!aim)camera.rotation.set(state.pitch*Math.PI/180,-panHeading(t/1000)*Math.PI/180,0,'YXZ');const r=view.getBoundingClientRect();if(r.width&&r.height)draw();});
 // dev: render one frame and save it through tools/serve.py (captures/, git-ignored)
 async function capture(name='walney.png'){pano?.follow(camera);rocks.update(camera);bushes?.update(camera);trees.update(camera);if(photo)photo.U.view.value=renderer.domElement.width/renderer.domElement.height;drawNow();const blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/png'));await fetch(`/__capture?name=${encodeURIComponent(name)}`,{method:'POST',body:blob});return name;}

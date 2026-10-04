@@ -26,6 +26,11 @@
  #readout{position:absolute;left:12px;bottom:10px;color:#fff;text-shadow:0 1px 3px #000a;font-variant-numeric:tabular-nums;pointer-events:none}
  #credit{position:absolute;right:10px;bottom:8px;color:#ffffffaa;font-size:11px;text-shadow:0 1px 2px #000;max-width:60%;text-align:right}
  #status{position:absolute;inset:0;display:grid;place-items:center;color:var(--dim)}
+ body.play aside,body.play #grip{display:none}
+ body.play #app{grid-template-columns:1fr}
+ #play-title{display:none;position:absolute;left:18px;top:14px;color:#fff;font:600 15px system-ui;text-shadow:0 1px 3px #0009;letter-spacing:.02em}
+ body.play #play-title{display:block}
+ #play-sound{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);background:#0007;color:#fff;border:1px solid #fff6;border-radius:20px;padding:8px 16px;font:14px system-ui;cursor:pointer}
  @media (max-width:760px){#app{grid-template-columns:1fr;grid-template-rows:45% 55%}aside{order:2}}
 </style></head>
 <body><div id="app">
@@ -75,7 +80,7 @@
   <div class="buttons"><button id="shot">Capture frame</button><button id="save">Save view</button><button id="copy">Copy camera JSON</button><button id="download">Download cameras</button></div>
  </div>
 </aside>
-<main id="view"><div id="status">Loading terrain…</div><div id="readout"></div><div id="credit"></div></main>
+<main id="view"><div id="status">Loading terrain…</div><div id="readout"></div><div id="play-title">Walney &middot; Sandscale dunes, looking to Black Combe</div><button id="play-sound" hidden>Tap for sound</button><div id="credit"></div></main>
 </div>
 <script type="module" src="./main.js"></script>
 </body></html>

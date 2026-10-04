@@ -2,7 +2,8 @@
 
 **Painting my home coastline in code.** A creative-coding art piece, work in progress: north Walney Island and the Duddon estuary in Cumbria, looking toward Black Combe, rebuilt in the browser with three.js (WebGPU).
 
-**▶ Visit: https://tekano.github.io/shoreline/**
+**▶ Visit: https://tekano.github.io/shoreline/**  
+**▶ Just watch (a looping tour with sound): https://tekano.github.io/shoreline/walney/?play**
 
 ![Sunset behind the fells from the Sandscale dunes](docs/walney-dusk.jpg)
 

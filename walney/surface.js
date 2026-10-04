@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+const DATA=new URLSearchParams(location.search).has('play')?'./play/data/':'./data/';
 
 // The surface map: a hand-painted layer over the 4 m near zone saying what the ground really is
 // where the rules (LiDAR height, OpenStreetMap land cover) get it wrong. 0 leaves the rules alone.
@@ -19,7 +20,7 @@ export async function createSurface(meta){
  const N=meta.near,W=N.size[0],H=N.size[1];
  const data=new Uint8Array(W*H);
  try{
-  const r=await fetch('./data/surface.png');
+  const r=await fetch(DATA+'surface.png');
   if(r.ok){
    const bmp=await createImageBitmap(await r.blob(),{colorSpaceConversion:'none',premultiplyAlpha:'none'});
    const cv=new OffscreenCanvas(W,H),cx=cv.getContext('2d',{willReadFrequently:true});cx.drawImage(bmp,0,0);
