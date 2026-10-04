@@ -1,20 +1,26 @@
 // The playback edition: a looping tour of the Sandscale dune top, no panel.
-//  camera  low in the marram, a slow rise to ~25 m, a hold, a slow descent, panning all the while
+//  camera  low in the marram for a while, a slow rise to ~25 m, a hold, a slow descent, turning a full circle
 //  clock   a whole summer day every 8 minutes, so dawn, noon, dusk and the night lights come round
-//  tide    in and out every 3 minutes, on its own cycle, so no two passes look the same
+//  tide    twice a day, as on this coast; cumulus and overcast drift up and down at random
 // Sound (after a tap: browsers keep pages silent until then) is procedural, as everything else:
 // wind hiss following the gusts, a surf roar breathing with the waves, a little high air.
 const ease=x=>x<0?0:x>1?1:x*x*(3-2*x);
 
 export function tour(t){
- // camera: 0-20 s low, 20-50 rise, 50-80 hold, 80-110 descend, 110-130 low   (130 s loop)
- const c=t%130,lift=c<20?0:c<50?ease((c-20)/30):c<80?1:c<110?1-ease((c-80)/30):0;
+ // camera: low 0-35 s, rise 35-65, high 65-110, descend 110-140, low 140-160   (160 s loop)
+ const c=t%160,lift=c<35?0:c<65?ease((c-35)/30):c<110?1:c<140?1-ease((c-110)/30):0;
  const eye=1.6+lift*24;
- const heading=334.7+Math.sin(t*2*Math.PI/95)*75+Math.sin(t*2*Math.PI/41)*8;   // a slow sweep, with a drift
+ // a full slow turn every 4 minutes (Black Combe, the estuary, the shore and the sea), with a sway
+ const heading=(334.7+t*360/240+Math.sin(t*2*Math.PI/37)*12+360)%360;
  const pitch=-1.5-lift*7+Math.sin(t*.13)*1.5;
- const time=(9+t/480*24)%24;                                                     // starts mid-morning
- const tide=.75+Math.sin(t*2*Math.PI/180)*3.4;
- return {eye,heading,pitch,time,tide};
+ // a day every 8 minutes, starting mid-morning; the tide twice a day (12 h 25 min), as here
+ const DAY=480,time=(9+t/DAY*24)%24;
+ const tide=.75+Math.sin(t*2*Math.PI/(DAY*12.42/24))*3.4;
+ // weather drifting at random: slow, overlapping cycles that never quite repeat
+ const w=(a,b,c)=>Math.sin(t*2*Math.PI/a)*.5+Math.sin(t*2*Math.PI/b+1.7)*.3+Math.sin(t*2*Math.PI/c+4.1)*.2;
+ const clouds=Math.min(1,Math.max(0,.4+.45*w(173,97,61)));
+ const overcast=Math.min(.75,Math.max(0,(w(311,203,127)-.25)*1.3));   // mostly fair, sometimes clouding over
+ return {eye,heading,pitch,time,tide,clouds,overcast};
 }
 
 export function createSound(look){

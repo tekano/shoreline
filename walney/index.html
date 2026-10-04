@@ -27,7 +27,8 @@
  #credit{position:absolute;right:10px;bottom:8px;color:#ffffffaa;font-size:11px;text-shadow:0 1px 2px #000;max-width:60%;text-align:right}
  #status{position:absolute;inset:0;display:grid;place-items:center;color:var(--dim)}
  body.play aside,body.play #grip{display:none}
- body.play #app{grid-template-columns:1fr}
+ body.play #app{display:flex;align-items:center;justify-content:center;background:#0b0f11}
+ body.play #view{flex:none;width:min(96vw,1280px,calc(92vh*16/9));aspect-ratio:16/9;height:auto;box-shadow:0 10px 40px #0008}
  #play-title{display:none;position:absolute;left:18px;top:14px;color:#fff;font:600 15px system-ui;text-shadow:0 1px 3px #0009;letter-spacing:.02em}
  body.play #play-title{display:block}
  #play-sound{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);background:#0007;color:#fff;border:1px solid #fff6;border-radius:20px;padding:8px 16px;font:14px system-ui;cursor:pointer}
