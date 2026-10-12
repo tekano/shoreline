@@ -33,6 +33,10 @@ python tools/serve.py        # then open http://localhost:8792/  (it goes to wal
 
 It needs a browser with WebGPU (current Chrome, Edge or Safari). [`walney/README.md`](walney/README.md) explains the terrain and land-cover pipeline (`terrain/`) and the camera tools.
 
+## Possible usage
+
+Ideas for tools that could feed the scene, not yet used: [`docs/possible-usage.md`](docs/possible-usage.md) (starting with NVIDIA's [usd-brep](https://github.com/NVIDIA-Omniverse/usd-brep) for exact CAD-style buildings, turbines and sea defences).
+
 ## Where it started
 
 Before Walney, Shoreline v0.1 combined two open-source projects into a beach-wave toy. It lives on at [`hybrid/`](https://tekano.github.io/shoreline/hybrid/):
